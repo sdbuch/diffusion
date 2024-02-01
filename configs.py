@@ -3,7 +3,10 @@
 
 # imports
 import dataclasses
-from types import OptimizerType
+from typing import Literal
+
+from types_custom import OptimizerType
+
 
 @dataclasses.dataclass(frozen=True)
 class OptimizerConfig:
@@ -14,4 +17,19 @@ class OptimizerConfig:
     """Learning rate to use."""
 
     weight_decay: float = 1e-2
-    """Coefficient for L2 regularization."""
+    """Coefficient for squared L2 regularization."""
+
+
+@dataclasses.dataclass(frozen=True)
+class ExperimentConfig:
+    device_str: Literal["cpu", "cuda"] = "cuda"
+    """Where to train the model."""
+
+    batch_size: int = 32
+    """Batch size to use for training."""
+
+    optimizer: OptimizerConfig = OptimizerConfig()
+    """Configuration for optimizer to use for training."""
+
+    seed: int | None = None
+    """Random seed to use for reproducibility. If None, a random seed is used."""
