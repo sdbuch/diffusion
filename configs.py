@@ -21,12 +21,21 @@ class OptimizerConfig:
 
 
 @dataclasses.dataclass(frozen=True)
+class LinearSelfAdjointDenoiserConfig:
+    hidden_dimension: int = 256
+    """Size of hidden layer for denoiser. (model is UU^T-type)"""
+
+    initialization_std: float = 1e-3
+    """Standard deviation of Gaussian for initialization of denoiser matrix. (one U factor)"""
+
+
+@dataclasses.dataclass(frozen=True)
 class ExperimentConfig:
     device_str: Literal["cpu", "cuda"] = "cuda"
     """Where to train the model."""
 
-    batch_size: int = 32
-    """Batch size to use for training."""
+    batch_size: int | None = 32
+    """Batch size to use for training. (None means full batch)"""
 
     num_epochs: int = 100
     """Number of epochs to use for training."""
@@ -37,14 +46,9 @@ class ExperimentConfig:
     optimizer: OptimizerConfig = OptimizerConfig()
     """Configuration for optimizer to use for training."""
 
+    # todo: abstract this better (enum)
+    model: LinearSelfAdjointDenoiserConfig = LinearSelfAdjointDenoiserConfig()
+    """Configuration for the denoiser to train."""
+
     seed: int | None = None
     """Random seed to use for reproducibility. If None, a random seed is used."""
-
-
-@dataclasses.dataclass(frozen=True)
-class LinearSelfAdjointDenoiserConfig:
-    hidden_dimension: int = 256
-    """Size of hidden layer for denoiser. (model is UU^T-type)"""
-
-    initialization_std: float = 1e-3
-    """Standard deviation of Gaussian for initialization of denoiser matrix. (one U factor)"""

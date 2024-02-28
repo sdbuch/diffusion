@@ -6,6 +6,7 @@ import dataclasses
 from collections.abc import Callable
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, cast
+from PIL import Image
 
 import matplotlib.pyplot as plt
 import numpy.typing as npt
@@ -30,7 +31,7 @@ def data_gram(
         "mean",
     )
 
-def convert_rgb_tensor_to_pil(image_tensor):
+def convert_rgb_tensor_to_pil(image_tensor: torch.Tensor) -> Image.Image:
     # expect image_tensor to be 3 x H x W
     # rescale image content
     min_val = image_tensor.min()

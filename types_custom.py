@@ -3,7 +3,10 @@
 
 # imports
 import enum
+import torch
 
+# This implementation relies on the optimizers having a common interface.
+# Might not always hold?
 class OptimizerType(enum.Enum):
-    ADAM = enum.auto()
-    SGD = enum.auto()
+    ADAM = torch.optim.Adam # enum.auto()
+    SGD = torch.optim.SGD # enum.auto()
