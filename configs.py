@@ -46,7 +46,7 @@ class ExperimentConfig:
     optimizer: OptimizerConfig = OptimizerConfig()
     """Configuration for optimizer to use for training."""
 
-    # todo: abstract this better (enum)
+    # TODO: abstract this better (enum)
     model: LinearSelfAdjointDenoiserConfig = LinearSelfAdjointDenoiserConfig()
     """Configuration for the denoiser to train."""
 
