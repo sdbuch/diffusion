@@ -96,68 +96,68 @@ class TranslatedSquareDataset(Dataset):
                     self.data[(i, j, k)] = translated_square.clone()
 
 
-class SquareDataModule(L.LightningDataModule):
-    def __init__(
-        self,
-        # root: Path,
-        transform: Callable | None = None,
-        dimension: int = 64,
-        dataset_size: int = 1,
-        batch_size: int = 32,
-        num_workers: int = 0,
-        pin_memory: bool = True,
-    ) -> None:
-        super().__init__()
-        self.transform = transform
-        self.dimension = dimension
-        self.dataset_size = dataset_size
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        self.pin_memory = pin_memory
-
-    def prepare_data(self) -> None:
-        pass
-
-    def setup(self, stage: str = "") -> None:
-        self.train_dataset = SquareDataset(
-            transform=self.transform,
-            dimension=self.dimension,
-            dataset_size=self.dataset_size,
-        )
-        self.val_dataset = SquareDataset(
-            transform=self.transform,
-            dimension=self.dimension,
-            dataset_size=self.dataset_size,
-        )
-        self.test_dataset = SquareDataset(
-            transform=self.transform,
-            dimension=self.dimension,
-            dataset_size=self.dataset_size,
-        )
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=True,
-        )
-
-    def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=False,
-        )
-
-    def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            shuffle=False,
-        )
+# class SquareDataModule(L.LightningDataModule):
+#     def __init__(
+#         self,
+#         # root: Path,
+#         transform: Callable | None = None,
+#         dimension: int = 64,
+#         dataset_size: int = 1,
+#         batch_size: int = 32,
+#         num_workers: int = 0,
+#         pin_memory: bool = True,
+#     ) -> None:
+#         super().__init__()
+#         self.transform = transform
+#         self.dimension = dimension
+#         self.dataset_size = dataset_size
+#         self.batch_size = batch_size
+#         self.num_workers = num_workers
+#         self.pin_memory = pin_memory
+#
+#     def prepare_data(self) -> None:
+#         pass
+#
+#     def setup(self, stage: str = "") -> None:
+#         self.train_dataset = SquareDataset(
+#             transform=self.transform,
+#             dimension=self.dimension,
+#             dataset_size=self.dataset_size,
+#         )
+#         self.val_dataset = SquareDataset(
+#             transform=self.transform,
+#             dimension=self.dimension,
+#             dataset_size=self.dataset_size,
+#         )
+#         self.test_dataset = SquareDataset(
+#             transform=self.transform,
+#             dimension=self.dimension,
+#             dataset_size=self.dataset_size,
+#         )
+#
+#     def train_dataloader(self) -> DataLoader:
+#         return DataLoader(
+#             self.train_dataset,
+#             batch_size=self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=self.pin_memory,
+#             shuffle=True,
+#         )
+#
+#     def val_dataloader(self) -> DataLoader:
+#         return DataLoader(
+#             self.val_dataset,
+#             batch_size=self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=self.pin_memory,
+#             shuffle=False,
+#         )
+#
+#     def test_dataloader(self) -> DataLoader:
+#         return DataLoader(
+#             self.test_dataset,
+#             batch_size=self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=self.pin_memory,
+#             shuffle=False,
+#         )

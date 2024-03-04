@@ -20,11 +20,11 @@ from torchvision.utils import make_grid
 from tqdm import tqdm
 
 import wandb
-from configs import ExperimentConfig, LinearSelfAdjointDenoiserConfig
+from configs import AffineSelfAdjointDenoiserConfig, ExperimentConfig
 from data.square import SquareDataset, TranslatedSquareDataset
 from data.util import convert_rgb_tensor_to_pil, data_gram
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
-from denoisers.linear import LinearSelfAdjointDenoiser, OptimalLinearDenoiser
+from denoisers.linear import AffineSelfAdjointDenoiser, OptimalAffineDenoiser
 from types_custom import OptimizerType
 
 
@@ -73,7 +73,7 @@ def denoise_square(
 
     # Configure the models!
     # TODO: parameter init with our generator
-    denoiser = LinearSelfAdjointDenoiser(
+    denoiser = AffineSelfAdjointDenoiser(
         dimension,
         config.model.hidden_dimension,
         # config.model.initialization_std
@@ -82,7 +82,7 @@ def denoise_square(
     # For val, get the optimal denoiser for this dataset
     val_data = next(iter(val_dataloader))[0].clone().detach()
     bayes = OptimalEmpiricalDenoiserConstantEnergy(val_data, config.noise_level)
-    opt_lin = OptimalLinearDenoiser(val_data, config.noise_level)
+    opt_lin = OptimalAffineDenoiser(val_data, config.noise_level)
     # Move to gpu
     denoiser = denoiser.to(device)
     wandb.watch(denoiser, log_freq=config.num_epochs // 10)
@@ -113,11 +113,14 @@ def denoise_square(
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
-            wandb.log({"batch MSE": loss.item()})
+            # wandb.log({"batch MSE": loss.item()})
             with torch.no_grad():
                 opt_loss = loss_fn(X, opt_lin(noisy_X))
             wandb.log(
-                {"batch excess MSE (MSE - MSE_OPT)": loss.item() - opt_loss.item()}
+                {
+                    "batch MSE": loss.item(),
+                    "batch excess MSE (MSE - MSE_OPT)": loss.item() - opt_loss.item(),
+                }
             )
             # print(loss.to("cpu"))
     # with torch.no_grad():
@@ -133,18 +136,31 @@ def denoise_square(
     # "examine" the test performance
     denoiser.eval()
     with torch.no_grad():
+        # Count on dataloader being configured such that this loop just runs once
+        # (full-batch)... else logging will be weird
         for (X,) in test_dataloader:
             noisy_X = X + config.noise_level * torch.randn(
                 X.shape, device=device, generator=generator
             )
             denoised = denoiser(noisy_X)
             opt_denoised = bayes(noisy_X)
-        denoised_pil = convert_denoised_tensor(denoised, dimension)
-        opt_denoised_pil = convert_denoised_tensor(opt_denoised, dimension)
-    wandb.log({"opt denoising error": torch.mean((opt_denoised - X) ** 2)})
-    wandb.log({"noisy test data (tiled)": [wandb.Image(noisy_X)]})
-    wandb.log({"denoised test data (tiled)": [wandb.Image(denoised_pil)]})
-    wandb.log({"optimal denoised test data (tiled)": [wandb.Image(opt_denoised_pil)]})
+            opt_lin_denoised = opt_lin(noisy_X)
+            denoised_pil = convert_denoised_tensor(denoised, dimension)
+            opt_lin_denoised_pil = convert_denoised_tensor(opt_lin_denoised, dimension)
+            opt_denoised_pil = convert_denoised_tensor(opt_denoised, dimension)
+            wandb.log(
+                {
+                    "opt denoising error": torch.mean((opt_denoised - X) ** 2),
+                    "noisy test data (tiled)": [wandb.Image(noisy_X)],
+                    "denoised test data (tiled)": [wandb.Image(denoised_pil)],
+                    "optimal linear denoised test data (tiled)": [
+                        wandb.Image(opt_lin_denoised_pil)
+                    ],
+                    "optimal denoised test data (tiled)": [
+                        wandb.Image(opt_denoised_pil)
+                    ],
+                }
+            )
     # wandb.log({"denoised test data": [wandb.Image(denoised)]}) # wandb tiles them for you, conversion is correct (rescale not clamp)
 
 

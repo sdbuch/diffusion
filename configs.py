@@ -21,7 +21,7 @@ class OptimizerConfig:
 
 
 @dataclasses.dataclass(frozen=True)
-class LinearSelfAdjointDenoiserConfig:
+class AffineSelfAdjointDenoiserConfig:
     hidden_dimension: int = 256
     """Size of hidden layer for denoiser. (model is UU^T-type)"""
 
@@ -47,7 +47,7 @@ class ExperimentConfig:
     """Configuration for optimizer to use for training."""
 
     # TODO: abstract this better (enum)
-    model: LinearSelfAdjointDenoiserConfig = LinearSelfAdjointDenoiserConfig()
+    model: AffineSelfAdjointDenoiserConfig = AffineSelfAdjointDenoiserConfig()
     """Configuration for the denoiser to train."""
 
     seed: int | None = None
