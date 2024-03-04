@@ -3,29 +3,22 @@
 
 # imports
 import dataclasses
-from collections.abc import Callable
-from pathlib import Path
-from time import sleep
-from typing import Dict, Literal, Optional, Tuple, cast
 
 import matplotlib.pyplot as plt
-import numpy.typing as npt
 import torch
-import torchvision.transforms.v2.functional as F
 import tyro
 from einops import rearrange
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision.utils import make_grid
 from tqdm import tqdm
 
 import wandb
-from configs import AffineSelfAdjointDenoiserConfig, ExperimentConfig
 from data.square import SquareDataset, TranslatedSquareDataset
 from data.util import convert_rgb_tensor_to_pil, data_gram
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
 from denoisers.linear import AffineSelfAdjointDenoiser, OptimalAffineDenoiser
-from types_custom import OptimizerType
+from meta.configs import AffineSelfAdjointDenoiserConfig, ExperimentConfig
+from meta.types_custom import OptimizerType
 
 
 def denoise_square(
