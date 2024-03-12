@@ -115,16 +115,6 @@ def denoise_square(
                     "batch excess MSE (MSE - MSE_OPT)": loss.item() - opt_loss.item(),
                 }
             )
-            # print(loss.to("cpu"))
-    # with torch.no_grad():
-    #     for (X_val,) in val_dataloader:
-    #         # Cheap evaluation of optimal denoiser's performance
-    #         noisy_X_val = X_val + config.noise_level * torch.randn(
-    #                 X_val.shape, device=device, generator=generator
-    #                 )
-    #         denoised_val = bayes(noisy_X_val)
-    #         loss_val = loss_fn(noisy_X_val, denoised_val)
-    #         wandb.log({"bayes error (est.)": loss_val.item()})
 
     # "examine" the test performance
     denoiser.eval()
