@@ -17,8 +17,8 @@ from data.square import SquareDataset, TranslatedSquareDataset
 from data.util import convert_rgb_tensor_to_pil, data_gram
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
 from denoisers.linear import AffineSelfAdjointDenoiser, OptimalAffineDenoiser
-from meta.configs import AffineSelfAdjointDenoiserConfig, ExperimentConfig
-from meta.types_custom import OptimizerType
+from util.configs import AffineSelfAdjointDenoiserConfig, ExperimentConfig
+from util.types_custom import OptimizerType
 
 
 def denoise_square(
