@@ -13,7 +13,7 @@ from util.visualization import plot_histogram
 from util.metrics import chamfer
 
 
-def test_ou_1d():
+def test_ou():
     # etc
     device = torch.device("cpu")
 
@@ -47,25 +47,25 @@ def test_ou_1d():
         sampler = BasicOUSampler(dim, score, min_time, num_points)
         samples = sampler.sample(num_samples)
 
-        # Test the results by visualizing (1D case)
-        variance = 1 - exp(-2 * min_time)
-        # print(variance)
-        num_pts_gaussian = 100
-        gaussian_pts = torch.linspace(-2, 2, num_pts_gaussian)
-        plt.plot(
-            gaussian_pts,
-            0.5
-            * (
-                1
-                / torch.sqrt(2 * torch.tensor(torch.pi) * variance)
-                * torch.exp(-0.5 * (gaussian_pts - 1) ** 2 / variance)
-                + 1
-                / torch.sqrt(2 * torch.tensor(torch.pi) * variance)
-                * torch.exp(-0.5 * (gaussian_pts + 1) ** 2 / variance)
-            ),
-        )
-        # plot_histogram(samples)
-        # print(samples)
+        ## Test the results by visualizing (1D case)
+        #variance = 1 - exp(-2 * min_time)
+        ## print(variance)
+        #num_pts_gaussian = 100
+        #gaussian_pts = torch.linspace(-2, 2, num_pts_gaussian)
+        #plt.plot(
+        #    gaussian_pts,
+        #    0.5
+        #    * (
+        #        1
+        #        / torch.sqrt(2 * torch.tensor(torch.pi) * variance)
+        #        * torch.exp(-0.5 * (gaussian_pts - 1) ** 2 / variance)
+        #        + 1
+        #        / torch.sqrt(2 * torch.tensor(torch.pi) * variance)
+        #        * torch.exp(-0.5 * (gaussian_pts + 1) ** 2 / variance)
+        #    ),
+        #)
+        ## plot_histogram(samples)
+        ## print(samples)
         distances = chamfer(X, samples)
         results[:, idx_dim] = distances
         print(f'done dim {dim}')
@@ -75,4 +75,4 @@ def test_ou_1d():
 
 
 if __name__ == "__main__":
-    tyro.cli(test_ou_1d)
+    tyro.cli(test_ou)
