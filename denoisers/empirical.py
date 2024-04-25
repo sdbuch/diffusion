@@ -21,8 +21,8 @@ class OptimalEmpiricalDenoiserConstantEnergy(nn.Module):
 
     def __init__(
         self,
-        dataset: torch.Tensor, # format as n x ... (will be flattened)
-        noise_std: float,
+        dataset: torch.Tensor,  # format as n x ... (will be flattened)
+        # noise_std: float,  # prefer this as an argument to forward...
     ):
         super().__init__()
         self.flatten = nn.Flatten()
@@ -30,16 +30,16 @@ class OptimalEmpiricalDenoiserConstantEnergy(nn.Module):
         self.input_shape = dataset.shape[1:]
         self.unflatten = nn.Unflatten(-1, self.input_shape)
         self.dataset = self.flatten(dataset)
-        self.noise_variance = noise_std**2
+        # self.noise_variance = noise_std**2
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, noise_variance: float) -> torch.Tensor:
         with torch.no_grad():
             # Flatten the input: output is b x dim
             x = self.flatten(x)
             # Compute correlations: output is b x n
             x = F.linear(x, self.dataset)
             # Calculate softmax weights with corrs: output is b x n
-            x = self.softmax(x / self.noise_variance)
+            x = self.softmax(x / noise_variance)
             # Combine dataset with softmax weights to generate output
             # output is b x dim
             x = F.linear(self.dataset.T, x).T
