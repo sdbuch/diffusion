@@ -21,15 +21,10 @@ We employ the following time conventions:
 """
 
 
-# This hack may not work
 def init_generator(seed, device):
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
-
-    def tmp():
-        return generator
-
-    return tmp
+    return generator
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,9 +45,12 @@ class SDESampler:
     # Randomness configuration
     device: torch.device = torch.device("cpu")
     seed: int = 0
-    generator: torch.Generator = dataclasses.field(
-        default_factory=init_generator(seed, device)
-    )
+    generator: torch.Generator | None = None
+
+    def __post_init__(self):
+        if self.generator is None:
+            # post-init hack to initialize
+            object.__setattr__(self, 'generator', init_generator(self.seed, self.device))
 
     def step(
         self, current_x: torch.Tensor, current_t: float, next_t: float
@@ -99,6 +97,9 @@ class BasicOUSampler(SDESampler):
         score_estimator: Callable[[torch.Tensor, float], torch.Tensor],  # same as drift
         min_time: float,
         num_points: int,
+        device: torch.device | None = None,
+        seed: int | None = None,
+        generator: torch.Generator | None = None,
     ):
         assert dimension > 0
 
@@ -115,6 +116,14 @@ class BasicOUSampler(SDESampler):
             assert max_time - t > 0
             return x + 2 * score_estimator(x, max_time - t)
 
+        default_dict = {}
+        if device is not None:
+            default_dict["device"] = device
+        if seed is not None:
+            default_dict["seed"] = seed
+        if generator is not None:
+            default_dict["generator"] = generator
+
         # Super
         super().__init__(
             dimension=dimension,
@@ -124,4 +133,5 @@ class BasicOUSampler(SDESampler):
             min_time=min_time,
             discretization=discretization,
             integrator=euler_maruyama,
+            **default_dict
         )
