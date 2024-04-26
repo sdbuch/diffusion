@@ -9,6 +9,7 @@ import tyro
 from tqdm import tqdm
 
 import wandb
+from data.square import SquareDataset, TranslatedSquareDataset
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
 from samplers.sde import BasicOUSampler
 from util.metrics import chamfer
@@ -22,6 +23,14 @@ def test_ou():
     # Experiment params
     dims = range(10, 1000, 10)
     num_samples = 1000
+    data = TranslatedSquareDataset(
+            dimension=10,
+            dataset_size=1,
+            device=device)
+    tmp = []
+    for idx in range(len(data)):
+        sample = data[idx]
+        tmp.append(sample[0])
 
     # sampler params
     min_time = 1e-2
