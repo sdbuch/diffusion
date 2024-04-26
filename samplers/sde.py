@@ -10,7 +10,8 @@ from typing import Iterable
 import torch
 from util.visualization import plot_histogram
 
-from samplers.discretizations import ExpoLinearDiscretization, LinearDiscretization
+from samplers.discretizations import (ExpoLinearDiscretization,
+                                      LinearDiscretization)
 from samplers.integrators import euler_maruyama
 
 """ This module contains classes for sampling from stochastic differential equations (SDEs).
@@ -50,7 +51,9 @@ class SDESampler:
     def __post_init__(self):
         if self.generator is None:
             # post-init hack to initialize
-            object.__setattr__(self, 'generator', init_generator(self.seed, self.device))
+            object.__setattr__(
+                self, "generator", init_generator(self.seed, self.device)
+            )
 
     def step(
         self, current_x: torch.Tensor, current_t: float, next_t: float
@@ -133,5 +136,11 @@ class BasicOUSampler(SDESampler):
             min_time=min_time,
             discretization=discretization,
             integrator=euler_maruyama,
-            **default_dict
+            **default_dict,
         )
+
+    def sample(self, num_samples: int, debias: bool = False) -> torch.Tensor:
+        samples = super().sample(num_samples)
+        if debias == True:
+            samples *= exp(self.min_time)
+        return samples

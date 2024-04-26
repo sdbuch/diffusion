@@ -6,9 +6,9 @@ from math import exp, sqrt
 import matplotlib.pyplot as plt
 import torch
 import tyro
+import wandb
 from tqdm import tqdm
 
-import wandb
 from data.square import SquareDataset, TranslatedSquareDataset
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
 from samplers.sde import BasicOUSampler
@@ -23,14 +23,12 @@ def test_ou():
     # Experiment params
     dims = range(10, 1000, 10)
     num_samples = 1000
-    data = TranslatedSquareDataset(
-            dimension=10,
-            dataset_size=1,
-            device=device)
+    data = TranslatedSquareDataset(dimension=10, dataset_size=1, device=device)
     tmp = []
     for idx in range(len(data)):
         sample = data[idx]
         tmp.append(sample[0])
+    # TODO: tweak datasets
 
     # sampler params
     min_time = 1e-2
@@ -78,7 +76,7 @@ def test_ou():
             )  # TODO: seems not ideal that score function depends so much on the process (but maybe unavoidable? possibly interface should be different...)
             # sampler
             sampler = BasicOUSampler(dim, score, min_time, num_points, device=device)
-            samples = sampler.sample(num_samples)
+            samples = sampler.sample(num_samples, debias=True)
 
             # calculate ell^2 distances
             # It corresponds to an upper bound on W_1 for ell^2
@@ -90,7 +88,7 @@ def test_ou():
                     "dimension": dim,
                     "distance": distances,
                     "mean distance": torch.mean(distances),
-                    "normalized distance": distances / sqrt(dim)
+                    "normalized distance": distances / sqrt(dim),
                 }
             )
             # TODO: anything else to log?
