@@ -26,7 +26,7 @@ def test_ou():
     # Experiment params
     dims = range(10, 1000, 10)
     num_samples = 10000
-    downsample_factor = 2  # HACK: setting to 0 means no downsampling
+    downsample_factor = 0  # HACK: setting to 0 means no downsampling
 
     # sampler params
     min_time = 1e-4

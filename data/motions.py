@@ -32,7 +32,9 @@ class TranslationalImageManifoldify(Dataset, Sized):
     def __getitem__(self, index: int):
         shifts = []
         for dim in self.data_shape[1:]:
-            shifts.append(index % (dim // self.downsample_factor))
+            shifts.append(
+                self.downsample_factor * (index % (dim // self.downsample_factor))
+            )
             index //= dim // self.downsample_factor
         data_point = self.data[self.data_index][index]
         shifted_data_point = torch.roll(
