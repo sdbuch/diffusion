@@ -3,15 +3,21 @@
 
 # imports
 from collections.abc import Callable
-from typing import Dict, Tuple
+from typing import Dict, Sized, Tuple
 
 import lightning as L
 import torch
 from numpy import unravel_index
 from torch.utils.data import DataLoader, Dataset
 
+from data.motions import TranslationalImageManifoldify
+from util.types_custom import SizedDatasetType
 
-class SquareDataset(Dataset):
+# Our datasets implement:
+#   __getitem__ and __len__ methods
+
+
+class SquareDataset(SizedDatasetType):
     def __init__(
         self,
         # root: Path,
@@ -27,7 +33,14 @@ class SquareDataset(Dataset):
         self._load(dimension, dataset_size)
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor]:
-        data = self.data[str(index)]
+        try:
+            data = self.data[str(index)]
+        except KeyError:
+            # Unfortunate consequence of this copilot-suggested format:
+            #   the default iterable implementation doesn't work...
+            #   hence catch the analogue of IndexError (now a KeyError)
+            #   and 'forward' it
+            raise IndexError
         if self.transform is not None:
             data = self.transform(data)
         return (data,)
@@ -47,8 +60,7 @@ class SquareDataset(Dataset):
             self.data[str(i)] = red_square.clone()
 
 
-# TODO: maybe can write this as a generic wrapper for a set of images...
-class TranslatedSquareDataset(Dataset):
+class TranslatedSquareDataset(SizedDatasetType):
     def __init__(
         self,
         # root: Path,
@@ -59,41 +71,26 @@ class TranslatedSquareDataset(Dataset):
     ) -> None:
         super().__init__()
         self.transform = transform
-        self.data: Dict[Tuple[int, int, int], torch.Tensor] = {}
+        self.data = TranslationalImageManifoldify(
+            SquareDataset(
+                dimension=dimension,
+                dataset_size=dataset_size,
+                device=device,
+                transform=transform,
+            ),
+            device,
+            downsample_factor=1,
+            data_index=0,
+        )
         self.device = device
         self.dimension = dimension
         self.copy_factor = dataset_size
-        self._load(dimension, dataset_size)
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor]:
-        i, j, k = unravel_index(
-            index, (self.dimension, self.dimension, self.copy_factor)
-        )
-        data = self.data[(int(i), int(j), int(k))]
-        if self.transform is not None:
-            data = self.transform(data)
-        return (data,)
+        return self.data[index]
 
     def __len__(self) -> int:
         return len(self.data)
-
-    def _load(self, dimension, dataset_size) -> None:
-        # Make the red square
-        # it's 3 x dimension x dimension
-        step = torch.zeros((dimension, 1), device=self.device)
-        step[: dimension // 2, 0] = 1
-        square = (step @ step.T)[None, ...]
-        red_square = torch.cat(
-            (square, torch.zeros((2, dimension, dimension), device=self.device))
-        )
-        # Loop over translates and clone
-        for i in range(dimension):
-            for j in range(dimension):
-                for k in range(dataset_size):
-                    translated_square = torch.roll(
-                        red_square, shifts=(0, i, j), dims=(0, 1, 2)
-                    )
-                    self.data[(i, j, k)] = translated_square.clone()
 
 
 # class SquareDataModule(L.LightningDataModule):
