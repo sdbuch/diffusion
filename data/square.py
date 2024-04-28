@@ -16,6 +16,39 @@ from util.types_custom import SizedDatasetType
 # Our datasets implement:
 #   __getitem__ and __len__ methods
 
+class StepDataset(SizedDatasetType):
+    def __init__(
+        self,
+        # root: Path,
+        dimension: int,  # side length of step, step are half-width
+        device: torch.device,
+    ) -> None:
+        super().__init__()
+        self.data: Dict[str, torch.Tensor] = {}
+        self.device = device
+        self._load(dimension)
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor]:
+        try:
+            data = self.data[str(index)]
+        except KeyError:
+            # Unfortunate consequence of this copilot-suggested format:
+            #   the default iterable implementation doesn't work...
+            #   hence catch the analogue of IndexError (now a KeyError)
+            #   and 'forward' it
+            raise IndexError
+        return (data,)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def _load(self, dimension) -> None:
+        # Make the one-channel step square
+        step = torch.zeros((dimension,), device=self.device)
+        step[: dimension // 2] = 1
+        step = step[None, ...]
+        self.data['0'] = step
+
 
 class SquareDataset(SizedDatasetType):
     def __init__(

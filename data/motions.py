@@ -25,6 +25,7 @@ class TranslationalImageManifoldify(Dataset, Sized):
         self.data_index = data_index
         self.data_shape = self.data[0][data_index].shape
         self.device = device
+        # TODO: allow this to be a tuple (for different dims)
         self.downsample_factor = downsample_factor
         self._load()
 

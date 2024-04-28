@@ -6,10 +6,11 @@ from math import exp, sqrt
 import matplotlib.pyplot as plt
 import torch
 import tyro
-import wandb
 from tqdm import tqdm
 
-from data.square import SquareDataset, TranslatedSquareDataset
+import wandb
+from data.motions import TranslationalImageManifoldify
+from data.square import StepDataset
 from denoisers.empirical import OptimalEmpiricalDenoiserConstantEnergy
 from samplers.sde import BasicOUSampler
 from util.metrics import chamfer
@@ -23,16 +24,11 @@ def test_ou():
     # Experiment params
     dims = range(10, 1000, 10)
     num_samples = 1000
-    data = TranslatedSquareDataset(dimension=10, dataset_size=1, device=device)
-    tmp = []
-    for idx in range(len(data)):
-        sample = data[idx]
-        tmp.append(sample[0])
-    # TODO: tweak datasets
 
     # sampler params
-    min_time = 1e-2
+    min_time = 1e-4
     num_points = 1000
+    debias = False
 
     run = wandb.init(
         project="pixel-effect-on-wass-incoherent-mixture",
@@ -41,6 +37,7 @@ def test_ou():
             "num_samples": num_samples,
             "early_stopping_time": min_time,
             "discretization_length": num_points,
+            "debias": debias,
         },
         # | dataclasses.asdict(config),
     )
@@ -57,10 +54,13 @@ def test_ou():
         for idx_dim in range(len(dims)):
             # target empirical measure
             dim = dims[idx_dim]
-            X = torch.zeros((2, dim), device=device)
-            X[0, : dim // 2] += 1.0
-            X[1, dim // 2 :] += 1.0
-            # create score function
+            data = TranslationalImageManifoldify(
+                base_dataset=StepDataset(dimension=dim, device=device),
+                device=device,
+                downsample_factor=dim // 2,
+            )
+            X = [sample[0][None, ...] for sample in data]
+            X = torch.cat(X)
             denoiser = OptimalEmpiricalDenoiserConstantEnergy(X)
 
             score = (
@@ -75,8 +75,14 @@ def test_ou():
                 )
             )  # TODO: seems not ideal that score function depends so much on the process (but maybe unavoidable? possibly interface should be different...)
             # sampler
-            sampler = BasicOUSampler(dim, score, min_time, num_points, device=device)
-            samples = sampler.sample(num_samples, debias=True)
+            sampler = BasicOUSampler(
+                dimension=X.shape[1:],
+                score_estimator=score,
+                min_time=min_time,
+                num_points=num_points,
+                device=device,
+            )
+            samples = sampler.sample(num_samples, debias=debias)
 
             # calculate ell^2 distances
             # It corresponds to an upper bound on W_1 for ell^2

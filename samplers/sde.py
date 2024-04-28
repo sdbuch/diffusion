@@ -10,8 +10,7 @@ from typing import Iterable
 import torch
 from util.visualization import plot_histogram
 
-from samplers.discretizations import (ExpoLinearDiscretization,
-                                      LinearDiscretization)
+from samplers.discretizations import ExpoLinearDiscretization, LinearDiscretization
 from samplers.integrators import euler_maruyama
 
 """ This module contains classes for sampling from stochastic differential equations (SDEs).
@@ -33,7 +32,7 @@ class SDESampler:
     """Base class for SDE-based samplers."""
 
     # Process configuration
-    dimension: int  # dimension of ambient space TODO: allow to be size?
+    dimension: tuple[int] | torch.Size  # dimension of ambient space
     drift: Callable[[torch.Tensor, float], torch.Tensor]  # (x, t) -> drift
     diffusion_coeff: float  # only support scalars!
     max_time: float
@@ -75,7 +74,9 @@ class SDESampler:
         # full iteration of the sampler
         # TODO: Expose initial distribution
         initialization = torch.randn(
-            (num_samples, self.dimension), generator=self.generator, device=self.device
+            (num_samples,) + self.dimension,
+            generator=self.generator,
+            device=self.device,
         )
         current_x = initialization
         discretization = self.discretization()
@@ -96,7 +97,7 @@ class BasicOUSampler(SDESampler):
 
     def __init__(
         self,
-        dimension: int,
+        dimension: tuple[int] | torch.Size,
         score_estimator: Callable[[torch.Tensor, float], torch.Tensor],  # same as drift
         min_time: float,
         num_points: int,
@@ -104,7 +105,7 @@ class BasicOUSampler(SDESampler):
         seed: int | None = None,
         generator: torch.Generator | None = None,
     ):
-        assert dimension > 0
+        assert all([dim > 0 for dim in dimension])
 
         diffusion_coeff = sqrt(2.0)
 
