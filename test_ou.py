@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from math import exp, sqrt
+from math import exp, sqrt, log
 
 import matplotlib.pyplot as plt
 import torch
@@ -29,8 +29,8 @@ def test_ou():
     downsample_factor = 0  # HACK: setting to 0 means no downsampling
 
     # sampler params
-    min_time = 1e-4
-    num_points = 1000
+    base_min_time = 1.0
+    base_num_points = 10
     debias = False
 
     run = wandb.init(
@@ -38,10 +38,10 @@ def test_ou():
         config={
             "dimensions": list(dims),
             "num_samples": num_samples,
-            "early_stopping_time": min_time,
-            "discretization_length": num_points,
+            "early_stopping_time": base_min_time,
+            "discretization_length": base_num_points,
             "debias": debias,
-            "downsample_factor": downsample_factor
+            "downsample_factor": downsample_factor,
         },
         # | dataclasses.asdict(config),
     )
@@ -90,8 +90,8 @@ def test_ou():
             sampler = BasicOUSampler(
                 dimension=X.shape[1:],
                 score_estimator=score,
-                min_time=min_time,
-                num_points=num_points,
+                min_time=base_min_time / dim**2,
+                num_points=100,#2*int(base_num_points * log(dim)),
                 device=device,
                 seed=seed,
             )
