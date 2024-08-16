@@ -6,10 +6,15 @@ import enum
 from typing import Protocol, Sized
 
 import torch
+from jaxtyping import Float
+from torch import Tensor
 from torch.utils.data import Dataset
 
+# jaxtyping aliases
+FloatTensor = Float[Tensor, "1"]
 
-# This implementation relies on the optimizers having a common interface.
+
+# HACK: This implementation relies on the optimizers having a common interface.
 # Might not always hold?
 class OptimizerType(enum.Enum):
     ADAM = torch.optim.Adam  # enum.auto()

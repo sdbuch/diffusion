@@ -41,7 +41,7 @@ class ExperimentConfig:
     """Number of epochs to use for training."""
 
     noise_level: float = 1.0
-    """Gaussian noise level (standard deviation) to train the denoiser at."""
+    """Gaussian noise level (variance) to train the denoiser at."""
 
     optimizer: OptimizerConfig = OptimizerConfig()
     """Configuration for optimizer to use for training."""

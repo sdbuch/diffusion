@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from math import sqrt
-
 import torch
+from util.types_custom import FloatTensor
 
 
-def euler_maruyama(x: torch.Tensor, t: float, next_t: float) -> tuple[torch.Tensor, float]:
+def euler_maruyama(
+    x: torch.Tensor, t: FloatTensor, next_t: FloatTensor
+) -> tuple[torch.Tensor, FloatTensor]:
     """
     Euler-Maruyama integration scheme for SDEs.
 
@@ -16,4 +17,4 @@ def euler_maruyama(x: torch.Tensor, t: float, next_t: float) -> tuple[torch.Tens
     :return: tuple(Integrated drift for process (x * dt), integrated diffusion coefficient for process (sqrt(dt)))
     """
     dt = next_t - t
-    return (x * dt, sqrt(dt))
+    return (x * dt, torch.sqrt(dt))
