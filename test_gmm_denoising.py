@@ -25,6 +25,48 @@ from util.configs import ExperimentConfig, OptimizerConfig
 from util.types_custom import OptimizerType
 
 
+def plot_cov_ellipses(
+    means,
+    variances,
+    legend_str="",
+    color_str="red",
+    linestyle_str="dashed",
+):
+    num_clusters = variances.shape[0]
+    # Get the current axes, or create a new one if none exists
+    ax = plt.gca()
+    for i in range(num_clusters):
+        # Construct the covariance matrix based on variances
+        cov = variances[i] * torch.eye(2)
+        mean = means[i].detach().numpy()
+        # Calculate the eigenvalues and eigenvectors
+        eigvals, eigvecs = torch.linalg.eigh(
+            cov
+        )  # Use eigh since covariance matrices are symmetric
+        eigvals = torch.real(eigvals)
+        eigvecs = torch.real(eigvecs)
+        # Width and height of the ellipse are proportional to sqrt of the eigenvalues
+        # (width/height are 'diameters', not 'radii'... 2* is 'one sigma', 4* 'two sigma', etc)
+        width, height = 4 * torch.sqrt(eigvals).detach().numpy()
+        # Calculate the angle of the ellipse
+        angle = torch.atan2(eigvecs[0, 1], eigvecs[0, 0]).item() * 180 / 3.14159
+        # Plot the ellipse
+        ell = patches.Ellipse(
+            xy=mean,
+            width=width,
+            height=height,
+            angle=angle,
+            edgecolor=color_str,
+            facecolor="none",
+            linestyle=linestyle_str,
+            label=f"cluster {i}" + legend_str,
+        )
+        # Add the ellipse to the axes
+        ax.add_patch(ell)
+    # Ensure the plot limits are updated to accommodate the ellipses
+    plt.autoscale()
+
+
 def test_sampling() -> None:
     # Logging
     wandb.init(project="gmm_test", name="gmm_test_sampling")
@@ -71,8 +113,11 @@ def test_sampling() -> None:
                 samples_np[:, 0], samples_np[:, 1], label="final samples", alpha=0.5
             )
             # plot covariance ellipsoids on top of the scatter
-            means, variances = (model.get_means(), model.get_variances())
-            means_t, variances_t = (model.get_means(time), model.get_variances(time))
+            means, variances = (model.flatten(model.get_means()), model.get_variances())
+            means_t, variances_t = (
+                model.flatten(model.get_means(time)),
+                model.get_variances(time),
+            )
             plot_cov_ellipses(means, variances, legend_str="(t=0)", color_str="blue")
             plot_cov_ellipses(
                 means_t, variances_t, legend_str=f"(t={time:.3f})", color_str="red"
@@ -95,7 +140,6 @@ def test_sampling() -> None:
     wandb.finish()
 
 
-# TODO: test learning
 def test_learning(config: ExperimentConfig) -> None:
     wandb.init(
         project="gmm_test", name="gmm_test_learning", config=dataclasses.asdict(config)
@@ -166,7 +210,10 @@ def test_learning(config: ExperimentConfig) -> None:
             optimizer.step()
             optimizer.zero_grad()
             wandb.log(
-                {"batch MSE": loss.item(), "variance": model.standard_dev.detach().item()**2}
+                {
+                    "batch MSE": loss.item(),
+                    "variance": model.standard_dev.detach().item() ** 2,
+                }
             )
 
     # visualize the learned model.
@@ -180,8 +227,14 @@ def test_learning(config: ExperimentConfig) -> None:
     plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
     plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
     # plot covariance ellipsoids on top of the scatter
-    means, variances = (model_gt.get_means(), model_gt.get_variances())
-    means_learned, variances_learned = (model.get_means(), model.get_variances())
+    means, variances = (
+        model_gt.flatten(model_gt.get_means()),
+        model_gt.get_variances(),
+    )
+    means_learned, variances_learned = (
+        model.flatten(model.get_means()),
+        model.get_variances(),
+    )
     plot_cov_ellipses(means, variances, legend_str="ground truth", color_str="blue")
     plot_cov_ellipses(
         means_learned, variances_learned, legend_str=f"learned", color_str="red"
@@ -225,8 +278,8 @@ def test_working() -> None:
     plt.scatter(x_np[:, 0], x_np[:, 1], label="noisy samples", alpha=0.5)
     plt.scatter(y_np[:, 0], y_np[:, 1], label="denoised samples", alpha=0.5)
     # plot covariance ellipsoids on top of the scatter
-    means, variances = (model.get_means(), model.get_variances())
-    means_t, variances_t = (model.get_means(t), model.get_variances(t))
+    means, variances = (model.flatten(model.get_means()), model.get_variances())
+    means_t, variances_t = (model.flatten(model.get_means(t)), model.get_variances(t))
     plot_cov_ellipses(means, variances, legend_str="(t=0)", color_str="blue")
     plot_cov_ellipses(means_t, variances_t, legend_str=f"(t={t:.3f})", color_str="red")
     plt.legend()
@@ -241,53 +294,145 @@ def test_working() -> None:
     wandb.finish()
 
 
-def plot_cov_ellipses(
-    means,
-    variances,
-    legend_str="",
-    color_str="red",
-    linestyle_str="dashed",
-):
-    num_clusters = variances.shape[0]
-    # Get the current axes, or create a new one if none exists
-    ax = plt.gca()
-    for i in range(num_clusters):
-        # Construct the covariance matrix based on variances
-        cov = variances[i] * torch.eye(2)
-        mean = means[i].detach().numpy()
-        # Calculate the eigenvalues and eigenvectors
-        eigvals, eigvecs = torch.linalg.eigh(
-            cov
-        )  # Use eigh since covariance matrices are symmetric
-        eigvals = torch.real(eigvals)
-        eigvecs = torch.real(eigvecs)
-        # Width and height of the ellipse are proportional to sqrt of the eigenvalues
-        # (width/height are 'diameters', not 'radii'... 2* is 'one sigma', 4* 'two sigma', etc)
-        width, height = 4 * torch.sqrt(eigvals).detach().numpy()
-        # Calculate the angle of the ellipse
-        angle = torch.atan2(eigvecs[0, 1], eigvecs[0, 0]).item() * 180 / 3.14159
-        # Plot the ellipse
-        ell = patches.Ellipse(
-            xy=mean,
-            width=width,
-            height=height,
-            angle=angle,
-            edgecolor=color_str,
-            facecolor="none",
-            linestyle=linestyle_str,
-            label=f"cluster {i}" + legend_str,
+def test_loss_values(config: ExperimentConfig) -> None:
+    wandb.init(
+        project="gmm_test",
+        name="gmm_test_loss_values",
+        config=dataclasses.asdict(config),
+    )
+    # Parameters
+    input_size = (1, 2, 1)
+    num_clusters_gt = 3
+    num_clusters = 32
+    variance_gt = 0.35**2
+    num_samples = 32
+    noise_upsampling_rate = 1000
+    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2
+    device = torch.device(config.device_str)
+    generator = torch.Generator(device=device)
+    if config.seed is not None:
+        generator.manual_seed(config.seed)
+    else:
+        generator.seed()
+    if config.batch_size is None:
+        # full-batch operation
+        batch_size = num_samples
+    else:
+        batch_size = config.batch_size
+    # ground-truth Denoiser
+    model_gen = GMMEqualVarianceDenoiser(
+        input_size, num_clusters_gt, init_variance=variance_gt
+    )
+    for param in model_gen.parameters():
+        param.requires_grad = False
+    model_gen.to(device)
+    # data: get some samples from the ground-truth model
+    t = torch.tensor(0.0)
+    train_data = model_gen.generate_samples(num_samples, t)
+    # train_dataset = TensorDataset(train_data)
+    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
+    # memorizing denoiser
+    model_mem = GMMEqualVarianceDenoiser(
+        input_size, num_samples, init_variance=0.0, init_means=train_data
+    )
+    for param in model_mem.parameters():
+        param.requires_grad = False
+    model_mem.to(device)
+
+    # Loop, calculate loss values.
+    losses = []
+    scale, _ = model_gen.get_time_scaling(time_to_train_at)
+    variance = 1 - scale**2
+
+    for idx in tqdm(range(num_clusters_gt, num_samples + 1), desc="Epoch"):
+        random_sample_idxs = torch.randperm(num_samples)[:idx]
+        random_data_sample = train_data[random_sample_idxs, ...]
+        model_pmem = GMMEqualVarianceDenoiser(
+            input_size, int(idx), init_variance=0.0, init_means=random_data_sample
         )
-        # Add the ellipse to the axes
-        ax.add_patch(ell)
-    # Ensure the plot limits are updated to accommodate the ellipses
-    plt.autoscale()
+        for param in model_pmem.parameters():
+            param.requires_grad = False
+        model_pmem.to(device)
+        tiled_X = train_data.repeat(noise_upsampling_rate, 1, 1, 1)
+        noisy_X = scale * tiled_X + torch.sqrt(variance) * torch.randn(
+            tiled_X.shape, device=device, generator=generator
+        )
+        denoised_mem = model_mem(noisy_X, time_to_train_at)
+        denoised_pmem = model_pmem(noisy_X, time_to_train_at)
+        denoised_gen = model_gen(noisy_X, time_to_train_at)
+        loss_mem = (
+            torch.sum((tiled_X - denoised_mem) ** 2)
+            / num_samples
+            / noise_upsampling_rate
+        )
+        loss_pmem = (
+            torch.sum((tiled_X - denoised_pmem) ** 2)
+            / num_samples
+            / noise_upsampling_rate
+        )
+        loss_gen = (
+            torch.sum((tiled_X - denoised_gen) ** 2)
+            / num_samples
+            / noise_upsampling_rate
+        )
+
+        wandb.log(
+            {
+                "memorization MSE": loss_mem.item(),
+                "partial memorization MSE": loss_pmem.item(),
+                "generalizing MSE": loss_gen.item(),
+                "gen-to-mem gap": loss_gen.item() - loss_mem.item(),
+                "gen-to-pmem gap": loss_gen.item() - loss_pmem.item(),
+            }
+        )
+
+    # visualize the gt model.
+    # create a matplotlib scatterplot of the generated samples, show clusters
+    fig, ax = plt.subplots()
+    x_np = model_gen.flatten(train_data).detach().numpy()
+    noisy_x = scale * train_data + torch.sqrt(variance) * torch.randn(
+        train_data.shape, device=device, generator=generator
+    )
+    noisy_x_np = model_gen.flatten(noisy_x).detach().numpy()
+    plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
+    plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
+    # plot covariance ellipsoids on top of the scatter
+    means, variances = (
+        model_gen.flatten(model_gen.get_means()),
+        model_gen.get_variances(),
+    )
+    means_t, variances_t = (
+        model_gen.flatten(model_gen.get_means(time_to_train_at)),
+        model_gen.get_variances(time_to_train_at),
+    )
+    plot_cov_ellipses(means, variances, legend_str=" gt", color_str="blue")
+    plot_cov_ellipses(
+        means_t,
+        variances_t,
+        legend_str=f" gt (time {time_to_train_at:0.2f})",
+        color_str="red",
+    )
+    plt.legend()
+    frames = []
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+        plt.savefig(tmpfile.name)
+        plt.close(fig)
+        frames.append(wandb.Image(tmpfile.name))
+
+    # Log the images to wandb as an animation
+    wandb.log(
+        {
+            "image": frames[0],
+        }
+    )
+    wandb.finish()
 
 
 if __name__ == "__main__":
     # print("Testing that it works.")
     # test_working()
-    print("Testing that it can sample.")
-    test_sampling()
+    # print("Testing that it can sample.")
+    # test_sampling()
     # print("Testing that it can learn.")
     # test_learning(
     #     ExperimentConfig(
@@ -299,3 +444,10 @@ if __name__ == "__main__":
     #         ),
     #     )
     # )
+    print("Testing the values of losses.")
+    test_loss_values(
+        ExperimentConfig(
+            device_str="cpu",
+            batch_size=None,
+        )
+    )

@@ -6,6 +6,7 @@ import math
 
 import torch
 from einops import einsum
+from jaxtyping import Float, Int
 from torch import Tensor, nn
 
 # gaussian mixture model denoisers.
@@ -22,6 +23,7 @@ class GMMEqualVarianceDenoiser(nn.Module):
         input_size: tuple[int, int, int],
         num_clusters: int,
         init_variance: float = 1.0,
+        init_means: Float[Tensor, "num_clusters dim"] | None = None,
     ):
         super().__init__()
         # Parameters
@@ -30,11 +32,19 @@ class GMMEqualVarianceDenoiser(nn.Module):
         self.num_clusters = num_clusters
         self.init_variance = init_variance
         # Trainable parameters
-        self.means = nn.Parameter(
-            # 1 / math.sqrt(self.dim) * torch.randn(self.num_clusters, self.dim),
-            torch.randn(self.num_clusters, self.dim),
-            requires_grad=True,
-        )
+        if init_means is None:
+            self.means = nn.Parameter(
+                # 1 / math.sqrt(self.dim) * torch.randn(self.num_clusters, self.dim),
+                torch.randn((self.num_clusters,) + input_size),
+                requires_grad=True,
+            )
+        else:
+            self.means = nn.Parameter(
+                init_means.detach(),
+                requires_grad=True,
+            )
+        # self.standard_dev = 0 is valid.
+        # But there will be numerical issues with self.score
         self.standard_dev = nn.Parameter(
             math.sqrt(self.init_variance) * torch.ones((1,)),
             requires_grad=True,
@@ -50,7 +60,7 @@ class GMMEqualVarianceDenoiser(nn.Module):
         x = self.flatten(x)
         # timescale signal
         scale, variance_t = self.get_time_scaling(t)
-        scaled_clusters = self.means * scale  # N x dim
+        scaled_clusters = self.flatten(self.means) * scale  # N x dim
         # Calculate softmax weights
         dists = torch.cdist(x[None, ...], scaled_clusters[None, ...])[0, ...]  # B x N
         weights = -0.5 * dists**2 / variance_t
@@ -97,7 +107,7 @@ class GMMEqualVarianceDenoiser(nn.Module):
         scale, variance_t = self.get_time_scaling(t)
         # cluster sampling
         cluster_idxs = torch.randint(self.num_clusters, (num_samples,))
-        means = scale * self.means[cluster_idxs, :]  # num_samples x dim
+        means = scale * self.flatten(self.means[cluster_idxs, ...])  # num_samples x dim
         # cluster-conditional sampling
         gaussians = torch.randn(num_samples, self.dim)
         samples = means + gaussians * torch.sqrt(variance_t)
