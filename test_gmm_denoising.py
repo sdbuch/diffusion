@@ -406,8 +406,12 @@ def test_loss_values(config: ExperimentConfig) -> None:
                 / num_samples
                 / noise_upsampling_rate
             )
-            est_loss_gen = 2 * variance_gt * variance / variance_t + loss_mem
-            est_loss_pmem = 2 * variance_gt * (1 - idx / num_samples) + loss_mem
+            est_loss_gen = (
+                math.prod(input_size) * variance_gt * variance / variance_t + loss_mem
+            )
+            est_loss_pmem = (
+                math.prod(input_size) * variance_gt * (1 - idx / num_samples) + loss_mem
+            )
             # est_loss_pmem = loss_mem + (1 - idx / num_samples) * (
             #     2 * variance_gt + 1 / num_samples * torch.sum(train_data_means**2)
             # )
