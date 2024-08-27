@@ -305,7 +305,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
     input_size = (1, 8, 1)
     num_clusters_gt = 4
     variance_gt = 0.05**2
-    num_samples = 8*math.prod(input_size)**2
+    num_samples = 8 * math.prod(input_size) ** 2
     noise_upsampling_rate = 1000
     variance_to_time = lambda variance: torch.log(torch.tensor(1 - variance)) / -2
     time_for_gt_variance = variance_to_time(variance_gt)
@@ -326,7 +326,6 @@ def test_loss_values(config: ExperimentConfig) -> None:
     )
     for param in model_gen.parameters():
         param.requires_grad = False
-    model_gen.to(device)
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
     train_data, train_data_means = model_gen.generate_samples(num_samples, t)
@@ -338,7 +337,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
     )
     for param in model_mem.parameters():
         param.requires_grad = False
+    model_gen.to(device)
     model_mem.to(device)
+    train_data = train_data.to(device)
 
     # Loop, calculate loss values.
     num_times = 4
@@ -370,7 +371,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
             random_sample_idxs = shuffled_idxs[:idx]
             random_sample_idxs_complement = shuffled_idxs[idx:]
             random_data_sample = train_data[random_sample_idxs, ...].detach().clone()
-            random_data_sample_means = train_data_means[random_sample_idxs, ...].detach().clone()
+            random_data_sample_means = (
+                train_data_means[random_sample_idxs, ...].detach().clone()
+            )
             model_pmem = GMMEqualVarianceDenoiser(
                 input_size,
                 int(idx),
@@ -433,7 +436,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
         )
         noisy_x_np = model_gen.flatten(noisy_x).detach().numpy()
         plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
-        plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
+        plt.scatter(
+            noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5
+        )
         # plot covariance ellipsoids on top of the scatter
         means, variances = (
             model_gen.flatten(model_gen.get_means()),
@@ -485,7 +490,7 @@ if __name__ == "__main__":
     print("Testing the values of losses.")
     test_loss_values(
         ExperimentConfig(
-            device_str="cpu",
+            device_str="cuda",
             batch_size=None,
         )
     )
