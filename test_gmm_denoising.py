@@ -4,6 +4,7 @@
 # imports
 
 import dataclasses
+import math
 import os
 import tempfile
 
@@ -171,7 +172,7 @@ def test_learning(config: ExperimentConfig) -> None:
         param.requires_grad = False
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
-    train_data = model_gt.generate_samples(num_samples, t)
+    train_data, _ = model_gt.generate_samples(num_samples, t)
     train_dataset = TensorDataset(train_data)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     # Set up denoiser training.
@@ -267,7 +268,7 @@ def test_working() -> None:
     # data: get some samples
     num_samples = 100
     t = torch.tensor(0.01)
-    x = model.generate_samples(num_samples, t)
+    x, _ = model.generate_samples(num_samples, t)
     # denoise the samples
     y = model(x, t)
     # visualize the samples
@@ -301,13 +302,13 @@ def test_loss_values(config: ExperimentConfig) -> None:
         config=dataclasses.asdict(config),
     )
     # Parameters
-    input_size = (1, 2, 1)
-    num_clusters_gt = 3
-    num_clusters = 32
-    variance_gt = 0.35**2
-    num_samples = 32
+    input_size = (1, 8, 1)
+    num_clusters_gt = 4
+    variance_gt = 0.05**2
+    num_samples = 8*math.prod(input_size)**2
     noise_upsampling_rate = 1000
-    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2
+    variance_to_time = lambda variance: torch.log(torch.tensor(1 - variance)) / -2
+    time_for_gt_variance = variance_to_time(variance_gt)
     device = torch.device(config.device_str)
     generator = torch.Generator(device=device)
     if config.seed is not None:
@@ -328,7 +329,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
     model_gen.to(device)
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
-    train_data = model_gen.generate_samples(num_samples, t)
+    train_data, train_data_means = model_gen.generate_samples(num_samples, t)
     # train_dataset = TensorDataset(train_data)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     # memorizing denoiser
@@ -340,91 +341,128 @@ def test_loss_values(config: ExperimentConfig) -> None:
     model_mem.to(device)
 
     # Loop, calculate loss values.
-    losses = []
-    scale, _ = model_gen.get_time_scaling(time_to_train_at)
-    variance = 1 - scale**2
+    num_times = 4
+    times = torch.logspace(
+        2 * torch.log(time_for_gt_variance),
+        torch.log(time_for_gt_variance) / 2,
+        num_times,
+        base=math.exp(1.0),
+    )
+    for idx_time in tqdm(range(num_times), desc="Time", position=0):
+        cur_time = times[idx_time]
+        scale, variance_t = model_gen.get_time_scaling(cur_time)
+        variance = 1 - scale**2
 
-    for idx in tqdm(range(num_clusters_gt, num_samples + 1), desc="Epoch"):
-        random_sample_idxs = torch.randperm(num_samples)[:idx]
-        random_data_sample = train_data[random_sample_idxs, ...]
-        model_pmem = GMMEqualVarianceDenoiser(
-            input_size, int(idx), init_variance=0.0, init_means=random_data_sample
-        )
-        for param in model_pmem.parameters():
-            param.requires_grad = False
-        model_pmem.to(device)
-        tiled_X = train_data.repeat(noise_upsampling_rate, 1, 1, 1)
-        noisy_X = scale * tiled_X + torch.sqrt(variance) * torch.randn(
-            tiled_X.shape, device=device, generator=generator
-        )
-        denoised_mem = model_mem(noisy_X, time_to_train_at)
-        denoised_pmem = model_pmem(noisy_X, time_to_train_at)
-        denoised_gen = model_gen(noisy_X, time_to_train_at)
-        loss_mem = (
-            torch.sum((tiled_X - denoised_mem) ** 2)
-            / num_samples
-            / noise_upsampling_rate
-        )
-        loss_pmem = (
-            torch.sum((tiled_X - denoised_pmem) ** 2)
-            / num_samples
-            / noise_upsampling_rate
-        )
-        loss_gen = (
-            torch.sum((tiled_X - denoised_gen) ** 2)
-            / num_samples
-            / noise_upsampling_rate
-        )
+        # starting M at num_clusters_gt runs into "coupon collector problem" issues,
+        # where we might have a random subset of indices that doesn't cover all clusters.
+        # so we start at a larger value, which tries to reduce the prob. this happens
+        starting_M = math.ceil(
+            3 * num_clusters_gt * math.log(num_clusters_gt)
+        )  # prob.\ <= 1/9
 
+        for idx in tqdm(
+            range(starting_M, num_samples + 1),
+            desc="Epoch",
+            position=1,
+            leave=False,
+        ):
+            shuffled_idxs = torch.randperm(num_samples)
+            random_sample_idxs = shuffled_idxs[:idx]
+            random_sample_idxs_complement = shuffled_idxs[idx:]
+            random_data_sample = train_data[random_sample_idxs, ...].detach().clone()
+            random_data_sample_means = train_data_means[random_sample_idxs, ...].detach().clone()
+            model_pmem = GMMEqualVarianceDenoiser(
+                input_size,
+                int(idx),
+                init_variance=0.0,
+                # init_means=random_data_sample_means,
+                init_means=random_data_sample,
+            )
+            for param in model_pmem.parameters():
+                param.requires_grad = False
+            model_pmem.to(device)
+            tiled_X = train_data.repeat(noise_upsampling_rate, 1, 1, 1)
+            noisy_X = scale * tiled_X + torch.sqrt(variance) * torch.randn(
+                tiled_X.shape, device=device, generator=generator
+            )
+            denoised_mem = model_mem(noisy_X, cur_time)
+            denoised_pmem = model_pmem(noisy_X, cur_time)
+            denoised_gen = model_gen(noisy_X, cur_time)
+            loss_mem = (
+                torch.sum((tiled_X - denoised_mem) ** 2)
+                / num_samples
+                / noise_upsampling_rate
+            )
+            loss_pmem = (
+                torch.sum((tiled_X - denoised_pmem) ** 2)
+                / num_samples
+                / noise_upsampling_rate
+            )
+            loss_gen = (
+                torch.sum((tiled_X - denoised_gen) ** 2)
+                / num_samples
+                / noise_upsampling_rate
+            )
+            est_loss_gen = 2 * variance_gt * variance / variance_t + loss_mem
+            est_loss_pmem = 2 * variance_gt * (1 - idx / num_samples) + loss_mem
+            # est_loss_pmem = loss_mem + (1 - idx / num_samples) * (
+            #     2 * variance_gt + 1 / num_samples * torch.sum(train_data_means**2)
+            # )
+
+            wandb.log(
+                {
+                    "memorization MSE": loss_mem.item(),
+                    "partial memorization MSE": loss_pmem.item(),
+                    "est. partial memorization MSE": est_loss_pmem.item(),
+                    "generalizing MSE": loss_gen.item(),
+                    "est. generalizing MSE": est_loss_gen.item(),
+                    # "gen-to-mem gap": loss_gen.item() - loss_mem.item(),
+                    "gen-to-pmem gap": loss_gen.item() - loss_pmem.item(),
+                }
+            )
+
+    # visualize the gt model, if we're in low-dims.
+    # create a matplotlib scatterplot of the generated samples, show clusters
+    if math.prod(input_size) == 2:
+        fig, ax = plt.subplots()
+        x_np = model_gen.flatten(train_data).detach().numpy()
+        scale, _ = model_gen.get_time_scaling(time_for_gt_variance)
+        variance = 1 - scale**2
+        noisy_x = scale * train_data + torch.sqrt(variance) * torch.randn(
+            train_data.shape, device=device, generator=generator
+        )
+        noisy_x_np = model_gen.flatten(noisy_x).detach().numpy()
+        plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
+        plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
+        # plot covariance ellipsoids on top of the scatter
+        means, variances = (
+            model_gen.flatten(model_gen.get_means()),
+            model_gen.get_variances(),
+        )
+        means_t, variances_t = (
+            model_gen.flatten(model_gen.get_means(time_for_gt_variance)),
+            model_gen.get_variances(time_for_gt_variance),
+        )
+        plot_cov_ellipses(means, variances, legend_str=" gt", color_str="blue")
+        plot_cov_ellipses(
+            means_t,
+            variances_t,
+            legend_str=f" gt (time {time_for_gt_variance:0.2f})",
+            color_str="red",
+        )
+        plt.legend()
+        frames = []
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+            plt.savefig(tmpfile.name)
+            plt.close(fig)
+            frames.append(wandb.Image(tmpfile.name))
+
+        # Log the images to wandb as an animation
         wandb.log(
             {
-                "memorization MSE": loss_mem.item(),
-                "partial memorization MSE": loss_pmem.item(),
-                "generalizing MSE": loss_gen.item(),
-                "gen-to-mem gap": loss_gen.item() - loss_mem.item(),
-                "gen-to-pmem gap": loss_gen.item() - loss_pmem.item(),
+                "image": frames[0],
             }
         )
-
-    # visualize the gt model.
-    # create a matplotlib scatterplot of the generated samples, show clusters
-    fig, ax = plt.subplots()
-    x_np = model_gen.flatten(train_data).detach().numpy()
-    noisy_x = scale * train_data + torch.sqrt(variance) * torch.randn(
-        train_data.shape, device=device, generator=generator
-    )
-    noisy_x_np = model_gen.flatten(noisy_x).detach().numpy()
-    plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
-    plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
-    # plot covariance ellipsoids on top of the scatter
-    means, variances = (
-        model_gen.flatten(model_gen.get_means()),
-        model_gen.get_variances(),
-    )
-    means_t, variances_t = (
-        model_gen.flatten(model_gen.get_means(time_to_train_at)),
-        model_gen.get_variances(time_to_train_at),
-    )
-    plot_cov_ellipses(means, variances, legend_str=" gt", color_str="blue")
-    plot_cov_ellipses(
-        means_t,
-        variances_t,
-        legend_str=f" gt (time {time_to_train_at:0.2f})",
-        color_str="red",
-    )
-    plt.legend()
-    frames = []
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-        plt.savefig(tmpfile.name)
-        plt.close(fig)
-        frames.append(wandb.Image(tmpfile.name))
-
-    # Log the images to wandb as an animation
-    wandb.log(
-        {
-            "image": frames[0],
-        }
-    )
     wandb.finish()
 
 
