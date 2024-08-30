@@ -24,6 +24,7 @@ from tqdm import tqdm
 from util.configs import OptimizerConfig
 
 from .util import PreNorm
+from .crate import CRATE
 
 # Compression-based denoisers (MCR2-type)
 
@@ -50,13 +51,11 @@ class DeltaRLayer(nn.Module):
         self.step_size = step_size
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO: test
-
         ## EXPANSION GRADIENT
         cov = einsum(x, x, "b n d, b m d -> b n m")
-        shrinkage_matrix = torch.linalg.inv(
-            torch.eye(self.seq_length)[None, ...] + self.alpha * cov
-        )
+        dd_cov = self.alpha * cov
+        dd_cov[:, range(self.seq_length), range(self.seq_length)] += 1
+        shrinkage_matrix = torch.linalg.inv(dd_cov)
         expansion_grad = (
             self.alpha
             * (self.dim + self.seq_length)
@@ -78,9 +77,9 @@ class DeltaRLayer(nn.Module):
             "b k p n, b k q n -> b k p q",
         )
         # invert to get shrinkage tensor
-        shrinkage_tensor = torch.linalg.inv(
-            torch.eye(self.subspace_dim)[None, None, ...] + self.beta * projected_covs
-        )
+        dd_pcovs = self.beta * projected_covs
+        dd_pcovs[..., range(self.subspace_dim), range(self.subspace_dim)] += 1
+        shrinkage_tensor = torch.linalg.inv(dd_pcovs)
         # get the compression gradient
         shrunk_projections = einsum(
             projections, shrinkage_tensor, "b k p n, b k p q -> b k q n"
@@ -239,17 +238,15 @@ class MCRNet(nn.Module):
 
 if __name__ == "__main__":
     # test things
-    img_h = 32
-    img_w = 40
-    img_c = 3
-    batch = 4098
-    embedding_dim = 64
-    patch_h = 8
-    patch_w = 8
-    num_regs = 1
-    I = torch.rand(batch, img_c, img_h, img_w)
+    # img_h = 32
+    # img_w = 40
+    # img_c = 3
+    # patch_h = 8
+    # patch_w = 8
+    # I = torch.rand(batch, img_c, img_h, img_w)
 
     # Mnist stuff
+    batch = 128
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307), (0.3081))]
         # [transforms.ToTensor()]
@@ -264,8 +261,11 @@ if __name__ == "__main__":
     testloader = DataLoader(testset, batch_size=10000, shuffle=True, num_workers=2)
 
     # setup arch
-    num_subspaces = 4
-    step_size = 1e-1
+    embedding_dim = 128
+    num_subspaces = 16
+    num_layers = 12
+    num_regs = 1
+    step_size = 1e0
     quantization_error = 1e0
     model = MCRNet(
         input_h=28,
@@ -276,15 +276,27 @@ if __name__ == "__main__":
         num_classes=10,
         num_subspaces=num_subspaces,
         num_registers=num_regs,
-        num_layers=4,
+        num_layers=num_layers,
         step_size=step_size,
         quantization_error=quantization_error,
+    )
+    model = CRATE(
+        image_size=28,
+        patch_size=4,
+        num_classes=10,
+        dim=384,
+        depth=12,
+        heads=6,
+        dropout=0.0,
+        emb_dropout=0.0,
+        dim_head=384 // 6,
+        channels=1,
     )
 
     # training
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     optim_config = OptimizerConfig()
-    num_epochs = 100
+    num_epochs = 10
 
     model.to(device)
     loss = nn.CrossEntropyLoss()
@@ -296,22 +308,30 @@ if __name__ == "__main__":
 
     losses = []
     for epoch in tqdm(range(num_epochs), desc="Epoch", position=0):
-        for batch, (data, labels) in enumerate(
-            tqdm(trainloader, desc="Batch", position=1, leave=False)
-        ):
+        pbar = tqdm(trainloader, desc="Batch", position=1, leave=False, unit="batch")
+        for batch, (data, labels) in enumerate(pbar):
+            data, labels = data.to(device), labels.to(device)
             optimizer.zero_grad()
             out = model(data)
             l = loss(out, labels)
+            # Checking minibatch accuracy
+            preds = torch.softmax(out, dim=-1).argmax(dim=-1)
+            acc = (preds == labels).float().mean().item()
+            # print(f"Accuracy: {acc}")
+            pbar.set_postfix(acc=f"{acc:.2%}")
+            # pbar.update(1)
+            # backprop
             l.backward()
             optimizer.step()
 
-        # Evaluate accuracy
-        with torch.no_grad():
-            data, labels = next(iter(testloader))
-            logits = model(data)
-            preds = torch.softmax(logits, dim=-1).argmax(dim=-1)
-            acc = (preds == labels).float().mean().item()
-            print(f'Accuracy: {acc}')
+    # Evaluate accuracy on test set
+    with torch.no_grad():
+        data, labels = next(iter(testloader))
+        data, labels = data.to(device), labels.to(device)
+        logits = model(data)
+        preds = torch.softmax(logits, dim=-1).argmax(dim=-1)
+        acc = (preds == labels).float().mean().item()
+        print(f"Test Accuracy: {acc}")
 
     # # Test tokenizer
     # t = ImageTokenizer(embedding_dim, num_regs, patch_h, patch_w, img_h, img_w, img_c)

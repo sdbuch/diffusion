@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import torch
+from einops import repeat
 from matplotlib import patches
 from numpy.random import default_rng
 from torch import nn
@@ -328,7 +329,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
         param.requires_grad = False
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
-    train_data, train_data_means = model_gen.generate_samples(num_samples, t)
+    train_data, train_data_means, train_data_class_idxs = model_gen.generate_samples(
+        num_samples, t
+    )
     # train_dataset = TensorDataset(train_data)
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     # memorizing denoiser
@@ -371,8 +374,8 @@ def test_loss_values(config: ExperimentConfig) -> None:
             random_sample_idxs = shuffled_idxs[:idx]
             random_sample_idxs_complement = shuffled_idxs[idx:]
             random_data_sample = train_data[random_sample_idxs, ...].detach().clone()
-            random_data_sample_means = (
-                train_data_means[random_sample_idxs, ...].detach().clone()
+            random_data_sample_complement = (
+                train_data[random_sample_idxs_complement, ...].detach().clone()
             )
             model_pmem = GMMEqualVarianceDenoiser(
                 input_size,
@@ -384,7 +387,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
             for param in model_pmem.parameters():
                 param.requires_grad = False
             model_pmem.to(device)
-            tiled_X = train_data.repeat(noise_upsampling_rate, 1, 1, 1)
+            tiled_X = repeat(
+                train_data, "b c h w -> (r b) c h w", r=noise_upsampling_rate
+            )
             noisy_X = scale * tiled_X + torch.sqrt(variance) * torch.randn(
                 tiled_X.shape, device=device, generator=generator
             )
@@ -409,12 +414,38 @@ def test_loss_values(config: ExperimentConfig) -> None:
             est_loss_gen = (
                 math.prod(input_size) * variance_gt * variance / variance_t + loss_mem
             )
-            est_loss_pmem = (
-                math.prod(input_size) * variance_gt * (1 - idx / num_samples) + loss_mem
-            )
-            # est_loss_pmem = loss_mem + (1 - idx / num_samples) * (
-            #     2 * variance_gt + 1 / num_samples * torch.sum(train_data_means**2)
+            # # This formula is **wrong**
+            # est_loss_pmem = (
+            #     math.prod(input_size) * variance_gt * (1 - idx / num_samples) + loss_mem
             # )
+            # # This formula is also **wrong**, but a bit closer
+            # est_loss_pmem = (
+            #     math.prod(input_size)
+            #     * variance_gt
+            #     * (1 - idx / num_samples)
+            #     * (1 + num_clusters_gt / idx)
+            #     + loss_mem
+            # )
+            # # this formula is right! but it's not really closed-form enough
+            # in_sample_out_sample_dists = (
+            #     torch.cdist(
+            #         random_data_sample_complement.flatten(start_dim=1).unsqueeze(0),
+            #         random_data_sample.flatten(start_dim=1).unsqueeze(0),
+            #     )[0, ...]
+            #     ** 2
+            # )
+            # est_loss_pmem = (
+            #     in_sample_out_sample_dists.min(dim=1).values.sum() / num_samples
+            # )
+            est_loss_pmem = (
+                math.prod(input_size)
+                * variance_gt
+                * (1 - idx / num_samples)
+                * num_clusters_gt
+                / idx
+                / 4
+                + loss_mem
+            )
 
             wandb.log(
                 {

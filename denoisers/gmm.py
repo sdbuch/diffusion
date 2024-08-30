@@ -102,15 +102,17 @@ class GMMEqualVarianceDenoiser(nn.Module):
 
     def generate_samples(
         self, num_samples: int, t: Tensor = torch.zeros((1,))
-    ) -> tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor]:
         """Generate samples from the GMM. For Debug."""
         # time stuff
         scale, variance_t = self.get_time_scaling(t)
         # cluster sampling
         cluster_idxs = torch.randint(self.num_clusters, (num_samples,))
-        means = scale * self.flatten(self.means[cluster_idxs, ...].detach())  # num_samples x dim
+        means = scale * self.flatten(
+            self.means[cluster_idxs, ...].detach()
+        )  # num_samples x dim
         # cluster-conditional sampling
         gaussians = torch.randn(num_samples, self.dim)
         samples = means + gaussians * torch.sqrt(variance_t)
         samples = self.unflatten(samples)
-        return samples, self.means[cluster_idxs, ...].detach().clone()
+        return samples, self.means[cluster_idxs, ...].detach().clone(), cluster_idxs
