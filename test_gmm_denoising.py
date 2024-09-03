@@ -150,11 +150,11 @@ def test_learning(config: ExperimentConfig) -> None:
     # Parameters
     input_size = (1, 2, 1)
     num_clusters_gt = 3
-    num_clusters = 32
+    num_clusters = 64
     variance_gt = 0.35**2
     num_samples = 32
     noise_upsampling_rate = 1000
-    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2
+    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2 /8
     device = torch.device(config.device_str)
     generator = torch.Generator(device=device)
     if config.seed is not None:
@@ -174,7 +174,7 @@ def test_learning(config: ExperimentConfig) -> None:
         param.requires_grad = False
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
-    train_data, _ = model_gt.generate_samples(num_samples, t)
+    train_data, _, __ = model_gt.generate_samples(num_samples, t)
     train_dataset = TensorDataset(train_data)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     # Set up denoiser training.
@@ -521,20 +521,20 @@ if __name__ == "__main__":
     # print("Testing that it can sample.")
     # test_sampling()
     # print("Testing that it can learn.")
-    # test_learning(
-    #     ExperimentConfig(
-    #         device_str="cpu",
-    #         batch_size=None,
-    #         num_epochs=10000,
-    #         optimizer=OptimizerConfig(
-    #             algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
-    #         ),
-    #     )
-    # )
-    print("Testing the values of losses.")
-    test_loss_values(
+    test_learning(
         ExperimentConfig(
-            device_str="cuda",
+            device_str="cpu",
             batch_size=None,
+            num_epochs=10000,
+            optimizer=OptimizerConfig(
+                algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
+            ),
         )
     )
+# print("Testing the values of losses.")
+# test_loss_values(
+#     ExperimentConfig(
+#         device_str="cuda",
+#         batch_size=None,
+#     )
+# )
