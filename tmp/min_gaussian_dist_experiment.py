@@ -15,11 +15,11 @@ from scipy.special import gamma, gammainc, gammaincc
 def experiment():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    T = 10000
+    T = 1000
     E_min_dist_g_results = []
     E_min_dist_zero_results = []
-    N = torch.arange(10, 10000, 100)
-    d = 3
+    N = torch.arange(10, 4000, 100)
+    d = 300
     for n in N:
         G = torch.randn((T, int(n), d), device=device)
         g = torch.randn((T, 1, d), device=device)
@@ -34,9 +34,9 @@ def experiment():
         N.numpy() ** (2 / d)
         * torch.tensor(E_min_dist_g_results).numpy()
         / 2
-        / special.gamma(1 + 2 / d)
-        / special.gamma(d / 2 + 1) ** (2 / d)
-        / (d / (d - 2)) ** (d / 2),
+        # / special.gamma(1 + 2 / d)
+        # / (d / (d - 2)) ** (d / 2)
+        / special.gamma(d / 2 + 1) ** (2 / d),
         label="E[min dist to random] * n**(2/d)",
     )
     # plt.plot(
@@ -80,5 +80,5 @@ def tail_bound_experiment():
 
 
 if __name__ == "__main__":
-    # experiment()
-    tail_bound_experiment()
+    experiment()
+    # tail_bound_experiment()
