@@ -19,6 +19,7 @@ from numpy.random import default_rng
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+from scipy.special import gamma
 
 import wandb
 from denoisers.gmm import GMMEqualVarianceDenoiser
@@ -303,7 +304,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
         config=dataclasses.asdict(config),
     )
     # Parameters
-    input_size = (1, 8, 1)
+    input_size = (1, 10, 1)
     num_clusters_gt = 4
     variance_gt = 0.05**2
     num_samples = 8 * math.prod(input_size) ** 2
@@ -437,13 +438,21 @@ def test_loss_values(config: ExperimentConfig) -> None:
             # est_loss_pmem = (
             #     in_sample_out_sample_dists.min(dim=1).values.sum() / num_samples
             # )
+            # est_loss_pmem = (
+            #     math.prod(input_size)
+            #     * variance_gt
+            #     * (1 - idx / num_samples)
+            #     * num_clusters_gt
+            #     / idx
+            #     / 4
+            #     + loss_mem
+            # )
+            dim = math.prod(input_size)
             est_loss_pmem = (
-                math.prod(input_size)
+                2 * gamma(dim/2 + 1)**(2/dim) * gamma(2/dim + 1) * (dim / (dim - 2))**(dim/2)
                 * variance_gt
                 * (1 - idx / num_samples)
-                * num_clusters_gt
-                / idx
-                / 4
+                * (num_clusters_gt / idx)**(2/dim)
                 + loss_mem
             )
 
