@@ -3,11 +3,13 @@
 
 # imports
 import dataclasses
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Dict, Literal, Optional, Tuple, cast
 
 import matplotlib.pyplot as plt
+import numpy as np
 import numpy.typing as npt
 import torch
 from torch.nn.functional import softmax
@@ -53,14 +55,83 @@ def eval_softmax_approx(
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    beta = torch.sqrt(torch.tensor(0.25, device=device))
-    dims = torch.arange(128, 256)
-    times = torch.logspace(-6, 0, 100)
+    beta = torch.sqrt(torch.tensor(0.01))
+    dims = torch.arange(2, 32, 2)
+    # Regime 1: small times
+    times = beta**2 * torch.logspace(-6, 1, 25)
+    # Regime 2: large times. Test if it works.
+    # times = torch.logspace(-6, 1, 25)
     samples = torch.arange(16, 64, 2)
     results_mean, results_stdev = eval_softmax_approx(
         dims=dims, times=times, samples=samples, beta=beta, device=device
     )
-    # TODO:
-    # 1. Set the times variable based on beta (in general)
     # 2. Pick a hypothesis that a time around c \beta^2 is when the approximation breaks.
-    # 3. For different values of c, perform a dims-samples heatmap plot. Examine the transition, in particular whether the approximation can be made arbitrarily bad by increasing c in a reasonable part of the plane (e.g., n <= d^2; label it)
+    #    for OU, more like c log(1 + C beta^2), which may linearize.
+    const = 4
+    # Regime 1: target the cut time
+    target_time = 0.5 * torch.log(1 + const * beta**2)
+    # Regime 2: more arbitrary
+    # target_time = 1.0
+    closest_time_idx = torch.argmin(torch.abs(times - target_time))
+    if closest_time_idx == 0 or closest_time_idx == len(times) - 1:
+        warnings.warn("Closest time on the edge of times array: might be OOB.")
+    slice_mean, slice_std = (
+        results_mean[:, :, closest_time_idx],
+        results_stdev[:, :, closest_time_idx],
+    )
+    # 3. For different values of c, perform a dims-samples heatmap plot.
+    # Examine the transition, in particular whether the approximation can be
+    # made arbitrarily bad by increasing c in a reasonable part of the plane
+    # (e.g., n <= d^2; label it)
+    # Convert the tensor to a NumPy array for plotting
+    data_np = slice_mean.cpu().numpy()
+    xval_np = dims.cpu().numpy()
+    yval_np = samples.cpu().numpy()
+    # Define the curve y = f(x) (e.g., a simple quadratic curve)
+    x_curve = np.linspace(xval_np.min(), xval_np.max(), 100)
+    y_curve = x_curve**2  # Example curve: quadratic function
+
+    # Plot the heatmap with custom x and y axis values
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        data_np,
+        cmap="viridis",
+        aspect="auto",
+        vmin=0,
+        vmax=1,
+        extent=[xval_np[0], xval_np[-1], yval_np[-1], yval_np[0]],
+    )
+    # Overlay the curve on top of the heatmap
+    plt.plot(x_curve, y_curve, color="red", label="samples = dims^2")
+
+    # Set axes limits to ensure the heatmap and curve align properly
+    plt.xlim(xval_np[0], xval_np[-1])
+    plt.ylim(yval_np[-1], yval_np[0])
+
+    # Set custom tick labels
+    subsample_rate_y = 2
+    subsample_rate_x = 2
+    plt.xticks(
+        ticks=xval_np[::subsample_rate_x],
+        labels=[f"{val:.0f}" for val in xval_np[::subsample_rate_x]],
+    )
+    plt.yticks(
+        ticks=yval_np[::subsample_rate_y],
+        labels=[f"{val:.0f}" for val in yval_np[::subsample_rate_y]],
+    )
+    plt.colorbar(label="Value")
+    plt.title(f"Heatmap of Averaged ell-2 Softmax ApproxRates (1-Sparse, c={const:.1f})")
+    plt.xlabel("Ambient dimension")
+    plt.ylabel("Number of samples")
+    plt.gca().invert_yaxis()
+    plt.show()
+
+    # Make another plot of the time-wise behavior
+    # Do it for smallest samples; largest dim
+    slice_time_mean, slice_time_std = results_mean[0, -1, :].cpu(), results_stdev[0, -1, :].cpu()
+    plt.errorbar(times, slice_time_mean, yerr=slice_time_std, label=f'target time={target_time:.3f}')
+    plt.title(f"d={dims[-1]}, n={samples[0]}")
+    plt.xlabel('time')
+    plt.ylabel('softmax ell2 approximation error (averaged)')
+    plt.legend()
+    plt.show()
