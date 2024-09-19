@@ -16,10 +16,10 @@ import torch
 from einops import repeat
 from matplotlib import patches
 from numpy.random import default_rng
+from scipy.special import gamma
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
-from scipy.special import gamma
 
 import wandb
 from denoisers.gmm import GMMEqualVarianceDenoiser
@@ -154,7 +154,7 @@ def test_learning(config: ExperimentConfig) -> None:
     variance_gt = 0.35**2
     num_samples = 32
     noise_upsampling_rate = 1000
-    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2 /8
+    time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2 / 8
     device = torch.device(config.device_str)
     generator = torch.Generator(device=device)
     if config.seed is not None:
@@ -304,11 +304,12 @@ def test_loss_values(config: ExperimentConfig) -> None:
         config=dataclasses.asdict(config),
     )
     # Parameters
-    input_size = (1, 10, 1)
-    num_clusters_gt = 4
-    variance_gt = 0.05**2
-    num_samples = 8 * math.prod(input_size) ** 2
-    noise_upsampling_rate = 1000
+    input_size = (1, 8, 1)
+    num_clusters_gt = 1
+    variance_gt = 0.25**2
+    # num_samples = 8 * math.prod(input_size) ** 2
+    num_samples = 128
+    noise_upsampling_rate = 200
     variance_to_time = lambda variance: torch.log(torch.tensor(1 - variance)) / -2
     time_for_gt_variance = variance_to_time(variance_gt)
     device = torch.device(config.device_str)
@@ -361,7 +362,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
         # starting M at num_clusters_gt runs into "coupon collector problem" issues,
         # where we might have a random subset of indices that doesn't cover all clusters.
         # so we start at a larger value, which tries to reduce the prob. this happens
-        starting_M = math.ceil(
+        starting_M = 1 + math.ceil(
             3 * num_clusters_gt * math.log(num_clusters_gt)
         )  # prob.\ <= 1/9
 
@@ -412,8 +413,9 @@ def test_loss_values(config: ExperimentConfig) -> None:
                 / num_samples
                 / noise_upsampling_rate
             )
+            dim = math.prod(input_size)
             est_loss_gen = (
-                math.prod(input_size) * variance_gt * variance / variance_t + loss_mem
+                dim * variance_gt * variance / variance_t + loss_mem
             )
             # # This formula is **wrong**
             # est_loss_pmem = (
@@ -427,17 +429,17 @@ def test_loss_values(config: ExperimentConfig) -> None:
             #     * (1 + num_clusters_gt / idx)
             #     + loss_mem
             # )
-            # # this formula is right! but it's not really closed-form enough
-            # in_sample_out_sample_dists = (
-            #     torch.cdist(
-            #         random_data_sample_complement.flatten(start_dim=1).unsqueeze(0),
-            #         random_data_sample.flatten(start_dim=1).unsqueeze(0),
-            #     )[0, ...]
-            #     ** 2
-            # )
-            # est_loss_pmem = (
-            #     in_sample_out_sample_dists.min(dim=1).values.sum() / num_samples
-            # )
+            # this formula is right! but it's not really closed-form enough
+            in_sample_out_sample_dists = (
+                torch.cdist(
+                    random_data_sample_complement.flatten(start_dim=1).unsqueeze(0),
+                    random_data_sample.flatten(start_dim=1).unsqueeze(0),
+                )[0, ...]
+                ** 2
+            )
+            est_loss_pmem = (
+                in_sample_out_sample_dists.min(dim=1).values.sum() / num_samples
+            )
             # est_loss_pmem = (
             #     math.prod(input_size)
             #     * variance_gt
@@ -447,14 +449,17 @@ def test_loss_values(config: ExperimentConfig) -> None:
             #     / 4
             #     + loss_mem
             # )
-            dim = math.prod(input_size)
-            est_loss_pmem = (
-                2 * gamma(dim/2 + 1)**(2/dim) * gamma(2/dim + 1) * (dim / (dim - 2))**(dim/2)
-                * variance_gt
-                * (1 - idx / num_samples)
-                * (num_clusters_gt / idx)**(2/dim)
-                + loss_mem
-            )
+            # est_loss_pmem = (
+            #     2
+            #     * gamma(dim / 2 + 1) ** (2 / dim)
+            #     * gamma(2 / dim + 1)
+            #     * (dim / (dim - 2)) ** (dim / 2)
+            #     * variance_gt
+            #     * (1 - idx / num_samples)
+            #     * (num_clusters_gt / idx) ** (2 / dim)
+            #     + loss_mem
+            # )
+            # est_loss_pmem = loss_pmem
 
             wandb.log(
                 {
@@ -470,15 +475,16 @@ def test_loss_values(config: ExperimentConfig) -> None:
 
     # visualize the gt model, if we're in low-dims.
     # create a matplotlib scatterplot of the generated samples, show clusters
+    model_gen.to('cpu')
     if math.prod(input_size) == 2:
         fig, ax = plt.subplots()
-        x_np = model_gen.flatten(train_data).detach().numpy()
+        x_np = model_gen.flatten(train_data).detach().cpu().numpy()
         scale, _ = model_gen.get_time_scaling(time_for_gt_variance)
         variance = 1 - scale**2
         noisy_x = scale * train_data + torch.sqrt(variance) * torch.randn(
             train_data.shape, device=device, generator=generator
         )
-        noisy_x_np = model_gen.flatten(noisy_x).detach().numpy()
+        noisy_x_np = model_gen.flatten(noisy_x).detach().cpu().numpy()
         plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
         plt.scatter(
             noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5
@@ -521,20 +527,20 @@ if __name__ == "__main__":
     # print("Testing that it can sample.")
     # test_sampling()
     # print("Testing that it can learn.")
-    test_learning(
+    # test_learning(
+    #     ExperimentConfig(
+    #         device_str="cpu",
+    #         batch_size=None,
+    #         num_epochs=10000,
+    #         optimizer=OptimizerConfig(
+    #             algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
+    #         ),
+    #     )
+    # )
+    print("Testing the values of losses.")
+    test_loss_values(
         ExperimentConfig(
-            device_str="cpu",
+            device_str="cuda",
             batch_size=None,
-            num_epochs=10000,
-            optimizer=OptimizerConfig(
-                algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
-            ),
         )
     )
-# print("Testing the values of losses.")
-# test_loss_values(
-#     ExperimentConfig(
-#         device_str="cuda",
-#         batch_size=None,
-#     )
-# )

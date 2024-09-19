@@ -17,7 +17,7 @@ def experiment():
 
     E_min_dist_g_results = []
     E_min_dist_zero_results = []
-    T = 100
+    T = 1000
     N = torch.arange(10, 10000, 100)
     # d = 10
     # D = N
@@ -45,7 +45,6 @@ def experiment():
         # print(ticks - total)
         E_min_dist_g_results.append(accumulator / ticks)
         E_min_dist_zero_results.append(accumulator / ticks)
-    # D = torch.tensor((d,))
     plt.plot(
         N.numpy(),
         N.numpy() ** (2 / D.numpy())
@@ -53,7 +52,7 @@ def experiment():
         / 2
         / special.gamma(1 + 2 / D)
         / (D / (D - 2)) ** (D / 2)
-        / torch.exp(2/D * gammaln(D/2 + 1)),
+        / torch.exp(2 / D * gammaln(D / 2 + 1)),
         label="E[min dist to random] * n**(2/d)",
     )
     # plt.plot(
@@ -64,7 +63,7 @@ def experiment():
     #     / torch.exp(2 / D * gammaln(D / 2 + 1))
     #     / special.gamma(1 + 2 / D.numpy()),
     #     label="E[min dist to 0] * n**(2/d)",
-    #
+    # )
     # plt.plot(
     #     N.numpy(),
     #     torch.tensor(E_min_dist_zero_results).numpy() / (D),
