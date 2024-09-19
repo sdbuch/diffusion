@@ -55,7 +55,7 @@ def eval_softmax_approx(
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    beta = torch.sqrt(torch.tensor(0.01))
+    beta = torch.sqrt(torch.tensor(0.5))
     dims = torch.arange(2, 32, 2)
     # Regime 1: small times
     times = beta**2 * torch.logspace(-6, 1, 25)
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     )
     # 2. Pick a hypothesis that a time around c \beta^2 is when the approximation breaks.
     #    for OU, more like c log(1 + C beta^2), which may linearize.
-    const = 4
+    const = 4/5
     # Regime 1: target the cut time
     target_time = 0.5 * torch.log(1 + const * beta**2)
     # Regime 2: more arbitrary

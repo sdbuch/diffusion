@@ -148,13 +148,26 @@ def test_learning(config: ExperimentConfig) -> None:
         project="gmm_test", name="gmm_test_learning", config=dataclasses.asdict(config)
     )
     # Parameters
-    input_size = (1, 2, 1)
-    num_clusters_gt = 3
-    num_clusters = 64
-    variance_gt = 0.35**2
-    num_samples = 32
+    input_size = (1, 8, 1)
+    num_clusters_gt = 6
+    num_samples = 128
+    num_clusters = 256
+    variance_gt = 0.5**2
     noise_upsampling_rate = 1000
     time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2 / 8
+
+    # Hack some config logging since the ExperimentConfig is not set up right for this experiment...
+    wandb.log({
+        'input_size': input_size,
+        'num_clusters_gt': num_clusters_gt,
+        'num_clusters': num_clusters,
+        'variance_gt': variance_gt,
+        'num_samples': num_samples,
+        'noise_upsampling_rate': noise_upsampling_rate,
+        'time_to_train_at': time_to_train_at,
+    })
+
+
     device = torch.device(config.device_str)
     generator = torch.Generator(device=device)
     if config.seed is not None:
@@ -175,13 +188,18 @@ def test_learning(config: ExperimentConfig) -> None:
     # data: get some samples from the ground-truth model
     t = torch.tensor(0.0)
     train_data, _, __ = model_gt.generate_samples(num_samples, t)
+    model_mem = GMMEqualVarianceDenoiser(
+        input_size, num_samples, init_variance=0.0, init_means=train_data
+    )
+    for param in model_mem.parameters():
+        param.requires_grad = False
+    train_data = train_data.to(device)
     train_dataset = TensorDataset(train_data)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, drop_last=True)
     # Set up denoiser training.
     model = GMMEqualVarianceDenoiser(
         input_size, num_clusters, init_variance=config.noise_level
     )
-    model.to(device)
     wandb.watch(model, log_freq=config.num_epochs // 10)
 
     # # Configure the optimizer!
@@ -193,6 +211,9 @@ def test_learning(config: ExperimentConfig) -> None:
 
     # Training loop involves 'online sgd': adding indep. random noise to each minibatch
     # We will fix just one time to train at.
+    model.to(device)
+    model_gt.to(device)
+    model_mem.to(device)
     scale, _ = model_gt.get_time_scaling(time_to_train_at)
     variance = 1 - scale**2
     loss_fn = nn.MSELoss(reduction="sum")  # it takes a mean on all dims by default
@@ -207,6 +228,18 @@ def test_learning(config: ExperimentConfig) -> None:
                 tiled_X.shape, device=device, generator=generator
             )
             denoised = model(noisy_X, time_to_train_at)
+            denoised_mem = model_mem(noisy_X, time_to_train_at)
+            denoised_gen = model_gt(noisy_X, time_to_train_at)
+            loss_mem = (
+                torch.sum((tiled_X - denoised_mem) ** 2)
+                / batch_size
+                / noise_upsampling_rate
+            )
+            loss_gen = (
+                torch.sum((tiled_X - denoised_gen) ** 2)
+                / batch_size
+                / noise_upsampling_rate
+            )
             loss = loss_fn(tiled_X, denoised) / batch_size / noise_upsampling_rate
 
             loss.backward()
@@ -215,48 +248,58 @@ def test_learning(config: ExperimentConfig) -> None:
             wandb.log(
                 {
                     "batch MSE": loss.item(),
+                    "memorization MSE": loss_mem.item(),
+                    "generalization MSE": loss_gen.item(),
                     "variance": model.standard_dev.detach().item() ** 2,
                 }
             )
 
-    # visualize the learned model.
+    # visualize the gt model, if we're in low-dims.
     # create a matplotlib scatterplot of the generated samples, show clusters
-    fig, ax = plt.subplots()
-    x_np = model_gt.flatten(train_data).detach().numpy()
-    noisy_x = scale * train_data + torch.sqrt(variance) * torch.randn(
-        train_data.shape, device=device, generator=generator
-    )
-    noisy_x_np = model_gt.flatten(noisy_x).detach().numpy()
-    plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
-    plt.scatter(noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5)
-    # plot covariance ellipsoids on top of the scatter
-    means, variances = (
-        model_gt.flatten(model_gt.get_means()),
-        model_gt.get_variances(),
-    )
-    means_learned, variances_learned = (
-        model.flatten(model.get_means()),
-        model.get_variances(),
-    )
-    plot_cov_ellipses(means, variances, legend_str="ground truth", color_str="blue")
-    plot_cov_ellipses(
-        means_learned, variances_learned, legend_str=f"learned", color_str="red"
-    )
-    plt.legend()
-    frames = []
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-        plt.savefig(tmpfile.name)
-        plt.close(fig)
-        frames.append(wandb.Image(tmpfile.name))
+    model_gt.to("cpu")
+    model.to("cpu")
+    train_data = train_data.to("cpu")
+    if math.prod(input_size) == 2:
+        fig, ax = plt.subplots()
+        x_np = model_gt.flatten(train_data).detach().numpy()
+        noisy_x = (
+            scale * train_data
+            + torch.sqrt(variance)
+            * torch.randn(train_data.shape, device=device, generator=generator).cpu()
+        )
+        noisy_x_np = model_gt.flatten(noisy_x).detach().numpy()
+        plt.scatter(x_np[:, 0], x_np[:, 1], label="gt samples", alpha=0.5)
+        plt.scatter(
+            noisy_x_np[:, 0], noisy_x_np[:, 1], label="noisy gt samples", alpha=0.5
+        )
+        # plot covariance ellipsoids on top of the scatter
+        means, variances = (
+            model_gt.flatten(model_gt.get_means()),
+            model_gt.get_variances(),
+        )
+        means_learned, variances_learned = (
+            model.flatten(model.get_means()),
+            model.get_variances(),
+        )
+        plot_cov_ellipses(means, variances, legend_str="ground truth", color_str="blue")
+        plot_cov_ellipses(
+            means_learned, variances_learned, legend_str=f"learned", color_str="red"
+        )
+        plt.legend()
+        frames = []
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+            plt.savefig(tmpfile.name)
+            plt.close(fig)
+            frames.append(wandb.Image(tmpfile.name))
 
-    # Log the images to wandb as an animation
-    wandb.log(
-        {
-            "image": frames[0],
-            "learned means": means_learned,
-            "learned variances": variances_learned,
-        }
-    )
+        # Log the images to wandb as an animation
+        wandb.log(
+            {
+                "image": frames[0],
+                "learned means": means_learned,
+                "learned variances": variances_learned,
+            }
+        )
     wandb.finish()
 
 
@@ -414,9 +457,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
                 / noise_upsampling_rate
             )
             dim = math.prod(input_size)
-            est_loss_gen = (
-                dim * variance_gt * variance / variance_t + loss_mem
-            )
+            est_loss_gen = dim * variance_gt * variance / variance_t + loss_mem
             # # This formula is **wrong**
             # est_loss_pmem = (
             #     math.prod(input_size) * variance_gt * (1 - idx / num_samples) + loss_mem
@@ -475,7 +516,7 @@ def test_loss_values(config: ExperimentConfig) -> None:
 
     # visualize the gt model, if we're in low-dims.
     # create a matplotlib scatterplot of the generated samples, show clusters
-    model_gen.to('cpu')
+    model_gen.to("cpu")
     if math.prod(input_size) == 2:
         fig, ax = plt.subplots()
         x_np = model_gen.flatten(train_data).detach().cpu().numpy()
@@ -526,21 +567,21 @@ if __name__ == "__main__":
     # test_working()
     # print("Testing that it can sample.")
     # test_sampling()
-    # print("Testing that it can learn.")
-    # test_learning(
-    #     ExperimentConfig(
-    #         device_str="cpu",
-    #         batch_size=None,
-    #         num_epochs=10000,
-    #         optimizer=OptimizerConfig(
-    #             algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
-    #         ),
-    #     )
-    # )
-    print("Testing the values of losses.")
-    test_loss_values(
+    print("Testing that it can learn.")
+    test_learning(
         ExperimentConfig(
             device_str="cuda",
             batch_size=None,
+            num_epochs=10000,
+            optimizer=OptimizerConfig(
+                algorithm=OptimizerType.ADAM, learning_rate=1e-3, weight_decay=0.0
+            ),
         )
     )
+    # print("Testing the values of losses.")
+    # test_loss_values(
+    #     ExperimentConfig(
+    #         device_str="cuda",
+    #         batch_size=None,
+    #     )
+    # )
