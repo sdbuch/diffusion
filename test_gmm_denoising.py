@@ -148,25 +148,26 @@ def test_learning(config: ExperimentConfig) -> None:
         project="gmm_test", name="gmm_test_learning", config=dataclasses.asdict(config)
     )
     # Parameters
-    input_size = (1, 8, 1)
-    num_clusters_gt = 6
-    num_samples = 128
-    num_clusters = 256
+    input_size = (1, 6, 1)
+    num_clusters_gt = 1
+    num_samples = math.prod(input_size) ** 2
+    num_clusters = num_samples**2
     variance_gt = 0.5**2
     noise_upsampling_rate = 1000
     time_to_train_at = torch.log(torch.tensor(1 - variance_gt)) / -2 / 8
 
     # Hack some config logging since the ExperimentConfig is not set up right for this experiment...
-    wandb.log({
-        'input_size': input_size,
-        'num_clusters_gt': num_clusters_gt,
-        'num_clusters': num_clusters,
-        'variance_gt': variance_gt,
-        'num_samples': num_samples,
-        'noise_upsampling_rate': noise_upsampling_rate,
-        'time_to_train_at': time_to_train_at,
-    })
-
+    wandb.log(
+        {
+            "input_size": input_size,
+            "num_clusters_gt": num_clusters_gt,
+            "num_clusters": num_clusters,
+            "variance_gt": variance_gt,
+            "num_samples": num_samples,
+            "noise_upsampling_rate": noise_upsampling_rate,
+            "time_to_train_at": time_to_train_at,
+        }
+    )
 
     device = torch.device(config.device_str)
     generator = torch.Generator(device=device)
@@ -227,7 +228,7 @@ def test_learning(config: ExperimentConfig) -> None:
             noisy_X = scale * tiled_X + torch.sqrt(variance) * torch.randn(
                 tiled_X.shape, device=device, generator=generator
             )
-            denoised = model(noisy_X, time_to_train_at)
+            denoised = model(noisy_X, time_to_train_at, compute_scores=True)
             denoised_mem = model_mem(noisy_X, time_to_train_at)
             denoised_gen = model_gt(noisy_X, time_to_train_at)
             loss_mem = (
@@ -251,6 +252,8 @@ def test_learning(config: ExperimentConfig) -> None:
                     "memorization MSE": loss_mem.item(),
                     "generalization MSE": loss_gen.item(),
                     "variance": model.standard_dev.detach().item() ** 2,
+                    "one sparse score": model.one_sparse_score,
+                    "uniform score": model.uniform_score,
                 }
             )
 

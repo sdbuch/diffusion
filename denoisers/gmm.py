@@ -31,6 +31,8 @@ class GMMEqualVarianceDenoiser(nn.Module):
         self.dim = self.channels * self.height * self.width
         self.num_clusters = num_clusters
         self.init_variance = init_variance
+        self.one_sparse_score = 0.0
+        self.uniform_score = 0.0
         # Trainable parameters
         normalize = lambda x: x / torch.norm(x, dim=(1, 2, 3), p=2, keepdim=True)
         if init_means is None:
@@ -56,7 +58,7 @@ class GMMEqualVarianceDenoiser(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.unflatten = nn.Unflatten(-1, (self.channels, self.height, self.width))
 
-    def forward(self, x: Tensor, t: Tensor) -> Tensor:
+    def forward(self, x: Tensor, t: Tensor, compute_scores: bool = False) -> Tensor:
         # Flatten the input
         x = self.flatten(x)
         # timescale signal
@@ -66,7 +68,19 @@ class GMMEqualVarianceDenoiser(nn.Module):
         dists = torch.cdist(x[None, ...], scaled_clusters[None, ...])[0, ...]  # B x N
         weights = -0.5 * dists**2 / variance_t
         # Perform softmax autoregression
-        cluster_term = einsum(scaled_clusters, self.softmax(weights), "n d,b n->b d")
+        normalized_weights = self.softmax(weights)
+        cluster_term = einsum(scaled_clusters, normalized_weights, "n d,b n->b d")
+        if compute_scores == True:
+            max_idx = torch.argmax(weights, dim=-1)
+            one_sparse = torch.zeros_like(normalized_weights)
+            one_sparse[torch.arange(one_sparse.shape[0]), max_idx] = 1
+            uniform = torch.ones_like(normalized_weights) / normalized_weights.shape[-1]
+            # for i in range(normalized_weights.shape[0]):
+            #    one_sparse[i, max_idx[i]] = 1
+            one_sparse_errors = torch.sum((normalized_weights - one_sparse) ** 2, -1)
+            uniform_errors = torch.sum((normalized_weights - uniform) ** 2, -1)
+            self.one_sparse_score = torch.mean(one_sparse_errors)
+            self.uniform_score = torch.mean(uniform_errors)
         # Combine with input
         denoiser_weight = scale**2 * self.standard_dev**2 / variance_t
         x = denoiser_weight * x + (1 - denoiser_weight) * cluster_term
